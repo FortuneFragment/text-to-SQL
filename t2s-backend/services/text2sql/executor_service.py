@@ -1,0 +1,53 @@
+﻿from __future__ import annotations
+
+from decimal import Decimal
+from typing import Any, Callable
+
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
+
+from core.config import settings
+
+
+class Text2SQLExecutorService:
+    def __init__(
+        self,
+        engine_provider: Callable[[Session], Engine],
+        ensure_limit: Callable[[str], str],
+    ):
+        self._engine_provider = engine_provider
+        self._ensure_limit = ensure_limit
+
+    def execute_sql(self, db: Session, sql: str) -> tuple[list[str], list[dict[str, Any]]]:
+        engine = self._engine_provider(db)
+        sql = self._ensure_limit(sql)
+
+        with engine.connect() as conn:
+            timeout_ms = settings.TEXT2SQL_EXEC_TIMEOUT_SECONDS * 1000
+            try:
+                conn.execute(text(f"SET SESSION MAX_EXECUTION_TIME={timeout_ms}"))
+            except Exception:  # noqa: BLE001
+                pass
+
+            result = conn.execute(text(sql))
+            columns = list(result.keys())
+            rows: list[dict[str, Any]] = []
+
+            for row in result.fetchall():
+                row_dict: dict[str, Any] = {}
+                for index, column in enumerate(columns):
+                    value = row[index]
+
+                    if isinstance(value, Decimal):
+                        value = float(value)
+                    elif hasattr(value, "isoformat"):
+                        value = value.isoformat()
+                    elif isinstance(value, bytes):
+                        value = value.decode("utf-8", errors="replace")
+
+                    row_dict[column] = value
+                rows.append(row_dict)
+
+            return columns, rows
+

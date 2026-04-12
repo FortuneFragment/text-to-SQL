@@ -1,0 +1,61 @@
+﻿# ==============================
+# 系统文件
+# ==============================
+.DS_Store
+Thumbs.db
+
+# ==============================
+# IDE
+# ==============================
+.idea/
+.vscode/
+
+# ==============================
+# Python
+# ==============================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# 虚拟环境
+.venv/
+venv/
+ENV/
+env/
+t2s-backend/venv/
+t2s-backend/.venv/
+
+# 环境变量
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# 日志与临时文件
+*.log
+*.tmp
+*.temp
+
+# ==============================
+# Node / Vite
+# ==============================
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# ==============================
+# 本项目不希望自动出现的目录
+# ==============================
+deploy/
+t2s-backend/mysql/

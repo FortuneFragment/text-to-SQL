@@ -1,0 +1,42 @@
+﻿version: '3.8'
+
+services:
+  # ==========================================
+  # 1. MySQL 数据库（系统元数据 + 本地业务示例数据）
+  # ==========================================
+  mysql:
+    image: mysql:8.0
+    container_name: text2sql_mysql
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: text2sql_system
+      TZ: Asia/Shanghai
+    ports:
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+
+  # ==========================================
+  # 2. Redis 缓存与消息总线
+  # ==========================================
+  redis:
+    image: redis:7.2
+    container_name: text2sql_redis
+    command: redis-server --appendonly yes --requirepass root1234
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+# ==========================================
+# 声明数据卷
+# ==========================================
+volumes:
+  mysql_data:
+  redis_data:

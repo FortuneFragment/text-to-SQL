@@ -1,0 +1,49 @@
+:root {
+  --bg-main: linear-gradient(135deg, #fff3e9 0%, #e4f5ff 50%, #f6fff0 100%);
+  --bg-panel: rgba(255, 255, 255, 0.85);
+  --bg-card: #ffffff;
+  --text-main: #14213d;
+  --text-muted: #5c6b87;
+  --accent: #1f8a70;
+  --accent-strong: #0f6b58;
+  --warn: #bb3e03;
+  --line: rgba(20, 33, 61, 0.12);
+  --shadow: 0 20px 40px rgba(25, 80, 110, 0.15);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Space Grotesk", "Noto Sans SC", "Segoe UI", sans-serif;
+  color: var(--text-main);
+  background: var(--bg-main);
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.fade-in {
+  animation: fadeInUp 0.5s ease both;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
