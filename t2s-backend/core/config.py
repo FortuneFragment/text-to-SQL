@@ -5,6 +5,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    """中文备注：封装Settings相关业务能力。
+    类职责：聚合同类能力并提供统一调用入口。
+    """
     PROJECT_NAME: str = "Text2SQL Server"
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
@@ -44,6 +47,10 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
+        """中文备注：处理database uri相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
+        # 1. 返回结果：输出当前函数最终结果。
         return (
             f"mysql+pymysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}"
             f"@{self.MYSQL_HOST}:{self.MYSQL_PORT}/{self.MYSQL_DB}?charset=utf8mb4"
@@ -52,16 +59,28 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def EFFECTIVE_LLM_BASE_URL(self) -> str:
+        """中文备注：处理llm base url相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
+        # 1. 返回结果：输出当前函数最终结果。
         return self.LLM_BASE_URL
 
     @computed_field
     @property
     def EFFECTIVE_LLM_API_KEY(self) -> str:
+        """中文备注：处理llm api key相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
+        # 1. 返回结果：输出当前函数最终结果。
         return self.LLM_API_KEY
 
     @computed_field
     @property
     def EFFECTIVE_LLM_MODEL(self) -> str:
+        """中文备注：处理llm model相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
+        # 1. 返回结果：输出当前函数最终结果。
         return self.LLM_MODEL
 
     model_config = SettingsConfigDict(

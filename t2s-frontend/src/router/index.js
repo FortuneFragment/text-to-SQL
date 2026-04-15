@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from "vue-router";
 
 import ExternalDbPage from "../pages/ExternalDbPage.vue";
 import TableSwitchPage from "../pages/TableSwitchPage.vue";
+import FieldSwitchPage from "../pages/FieldSwitchPage.vue";
 import QaPage from "../pages/QaPage.vue";
 
 const router = createRouter({
@@ -24,6 +25,11 @@ const router = createRouter({
       path: "/table",
       name: "table",
       component: TableSwitchPage,
+    },
+    {
+      path: "/field",
+      name: "field",
+      component: FieldSwitchPage,
     },
     {
       path: "/qa",

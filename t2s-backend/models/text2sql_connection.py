@@ -7,6 +7,9 @@ from models.base import Base
 
 
 class Text2SQLConnection(Base):
+    """中文备注：封装连接管理。
+    类职责：聚合同类能力并提供统一调用入口。
+    """
     __tablename__ = "text2sql_connection"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

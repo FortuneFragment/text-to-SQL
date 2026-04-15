@@ -38,29 +38,22 @@ npm install
 npm run dev
 ```
 
-## Docker 启动（仅 MySQL + Redis）
+## Docker 启动（MySQL + Redis + MinIO + Milvus）
 ```powershell
 cd t2s-backend
 docker compose up -d
 ```
 
-说明：当前 `docker-compose.yml` 已移除 `./mysql/init` 挂载，不会自动初始化数据库脚本。
-如果是首次启动，需要手动创建数据库：
+如果需要同时启动 Celery Worker：
+
+```powershell
+docker compose --profile task up -d
+```
+
+说明：如果是首次启动，需要手动创建数据库：
 
 ```powershell
 docker exec -it text2sql_mysql mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS text2sql_system DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE DATABASE IF NOT EXISTS text2sql_biz DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 ```
 
-## 推送到 GitHub
-```powershell
-git init
-git add .
-git commit -m "init project"
-git branch -M main
-git remote add origin <你的仓库地址>
-git push -u origin main
-```
 
-## 说明
-- 已在项目配置中关闭 PyCharm 终端自动激活虚拟环境。
-- `.vscode` 已移除。

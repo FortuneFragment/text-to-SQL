@@ -1,5 +1,4 @@
-﻿version: '3.8'
-
+﻿name: text2sql
 services:
   # ==========================================
   # 1. MySQL 数据库（系统元数据 + 本地业务示例数据）
@@ -40,3 +39,4 @@ services:
 volumes:
   mysql_data:
   redis_data:
+

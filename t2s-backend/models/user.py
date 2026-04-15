@@ -7,6 +7,9 @@ from models.base import Base
 
 
 class User(Base):
+    """中文备注：封装User相关业务能力。
+    类职责：聚合同类能力并提供统一调用入口。
+    """
     __tablename__ = "user"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
