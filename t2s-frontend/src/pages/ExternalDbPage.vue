@@ -5,6 +5,7 @@
       <div class="quick-nav">
         <RouterLink to="/table" class="quick-link">表开关 <span class="arrow">→</span></RouterLink>
         <RouterLink to="/field" class="quick-link">字段开关 <span class="arrow">→</span></RouterLink>
+        <RouterLink to="/knowledge" class="quick-link">知识库上传 <span class="arrow">→</span></RouterLink>
         <RouterLink to="/qa" class="quick-link">知识问答 <span class="arrow">→</span></RouterLink>
       </div>
     </div>

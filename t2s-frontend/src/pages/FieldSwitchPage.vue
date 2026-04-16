@@ -8,6 +8,7 @@
       <div class="quick-nav">
         <RouterLink to="/connection" class="quick-link">连接配置</RouterLink>
         <RouterLink to="/table" class="quick-link">表开关</RouterLink>
+        <RouterLink to="/knowledge" class="quick-link">知识库上传</RouterLink>
         <RouterLink to="/qa" class="quick-link">知识问答</RouterLink>
       </div>
     </header>

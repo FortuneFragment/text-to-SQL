@@ -4,6 +4,8 @@ import ExternalDbPage from "../pages/ExternalDbPage.vue";
 import TableSwitchPage from "../pages/TableSwitchPage.vue";
 import FieldSwitchPage from "../pages/FieldSwitchPage.vue";
 import QaPage from "../pages/QaPage.vue";
+import KnowledgeBasePage from "../pages/KnowledgeBasePage.vue";
+import KnowledgeBaseDetailPage from "../pages/KnowledgeBaseDetailPage.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -35,6 +37,16 @@ const router = createRouter({
       path: "/qa",
       name: "qa",
       component: QaPage,
+    },
+    {
+      path: "/knowledge",
+      name: "knowledge",
+      component: KnowledgeBasePage,
+    },
+    {
+      path: "/knowledge/:kbId",
+      name: "knowledge-detail",
+      component: KnowledgeBaseDetailPage,
     },
   ],
 });

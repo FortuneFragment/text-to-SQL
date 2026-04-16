@@ -14,14 +14,15 @@ from sqlalchemy.orm import Session
 from core.config import settings
 from services.text2sql.config_service import Text2SQLConfigService
 from services.text2sql.connection_service import Text2SQLConnectionService
+from services.text2sql.enum_hint_service import Text2SQLEnumHintService
 from services.text2sql.executor_service import Text2SQLExecutorService
 from services.text2sql.field_permission_service import Text2SQLFieldPermissionService
-from services.text2sql.field_inference_service import Text2SQLFieldInferenceService
 from services.text2sql.generator_service import Text2SQLGeneratorService
 from services.text2sql.log_service import Text2SQLLogService
 from services.text2sql.repair_service import Text2SQLRepairService
 from services.text2sql.schema_service import Text2SQLSchemaService
 from services.text2sql.summary_service import Text2SQLSummaryService
+from services.text2sql.vector_service import Text2SQLVectorService
 from services.text2sql.validator_service import Text2SQLValidatorService
 
 _QUESTION_TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9_]+|[\u4e00-\u9fff]+")
@@ -46,6 +47,7 @@ class SQLAttemptResult:
     is_valid: bool
     validation_message: str
     repair_attempts: int
+    candidate_columns_map: dict[str, set[str]]
 
 
 class Text2SQLFacadeService:
@@ -77,7 +79,8 @@ class Text2SQLFacadeService:
         self.repair_service = Text2SQLRepairService(self._get_model, schema_service, self._ensure_limit)
         self.executor_service = Text2SQLExecutorService(self.connection_service.get_engine, self._ensure_limit)
         self.summary_service = Text2SQLSummaryService(self._get_model)
-        self.field_inference_service = Text2SQLFieldInferenceService(self._get_model)
+        self.vector_service = Text2SQLVectorService(kb_id=2)
+        self.enum_hint_service = Text2SQLEnumHintService(self.connection_service.get_engine, self.schema_service)
 
         # 3. 变量构建：计算并更新 `self._model: ChatOpenAI | None`。
         self._model: ChatOpenAI | None = None
@@ -91,10 +94,6 @@ class Text2SQLFacadeService:
         runtime = dict(runtime_config or {})
         selected_tables = self._normalize_table_list(runtime.get("selected_tables"))
         prompt_hint = str(runtime.get("prompt_hint") or "")
-        queryable_columns_map = self.field_permission_service.get_queryable_columns_map(
-            db,
-            selected_tables,
-        )
         request_id = str(runtime.get("request_id") or uuid.uuid4().hex[:8])
 
         # 2. 变量构建：计算并更新 `start`。
@@ -117,7 +116,6 @@ class Text2SQLFacadeService:
                 question=question,
                 selected_tables=selected_tables,
                 prompt_hint=prompt_hint,
-                queryable_columns_map=queryable_columns_map,
                 execute_sql=True,
             )
             generated_sql = payload["generated_sql"]
@@ -179,10 +177,6 @@ class Text2SQLFacadeService:
         runtime = dict(runtime_config or {})
         selected_tables = self._normalize_table_list(runtime.get("selected_tables"))
         prompt_hint = str(runtime.get("prompt_hint") or "")
-        queryable_columns_map = self.field_permission_service.get_queryable_columns_map(
-            db,
-            selected_tables,
-        )
         request_id = str(runtime.get("request_id") or uuid.uuid4().hex[:8])
 
         # 2. 核心处理：执行当前阶段的业务逻辑。
@@ -198,7 +192,6 @@ class Text2SQLFacadeService:
                 question=question,
                 selected_tables=selected_tables,
                 prompt_hint=prompt_hint,
-                queryable_columns_map=queryable_columns_map,
                 execute_sql=False,
             )
             _console_logger.info(
@@ -217,7 +210,7 @@ class Text2SQLFacadeService:
             raise
 
     def list_schema_overview(self, db: Session, table_names: list[str] | None = None):
-        """中文备注：列出schema overview相关业务数据并返回结果。
+        """列出schema overview相关业务数据并返回结果。
         执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
         """
         # 1. 返回结果：输出当前函数最终结果。
@@ -230,10 +223,9 @@ class Text2SQLFacadeService:
         question: str,
         selected_tables: list[str],
         prompt_hint: str,
-        queryable_columns_map: dict[str, set[str]],
         execute_sql: bool,
     ) -> dict:
-        """中文备注：处理pipeline相关业务数据并返回结果。
+        """处理pipeline相关业务数据并返回结果。
         执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
         """
         # 1. 变量构建：计算并更新 `route`。
@@ -241,7 +233,6 @@ class Text2SQLFacadeService:
             db,
             question,
             selected_tables,
-            queryable_columns_map=queryable_columns_map,
         )
         candidates = route["candidates"]
         # 2. 条件分支：根据当前状态选择不同处理路径。
@@ -250,14 +241,27 @@ class Text2SQLFacadeService:
                 str(route.get("clarify_question") or "\u5f53\u524d\u95ee\u9898\u672a\u5339\u914d\u5230\u53ef\u67e5\u8be2\u7684\u6570\u636e\u8868")
             )
 
+        candidate_columns_map = self.field_permission_service.get_queryable_columns_map(
+            db,
+            candidates,
+        )
+        enhanced_prompt_hint = prompt_hint
+        if settings.TEXT2SQL_ENUM_HINT_ENABLED:
+            enhanced_prompt_hint = self.enum_hint_service.build_prompt_hint(
+                db=db,
+                candidate_tables=candidates,
+                queryable_columns_map=candidate_columns_map,
+                base_prompt_hint=prompt_hint,
+            )
+
         # 3. 变量构建：计算并更新 `repair_rounds`。
         repair_rounds = max(0, int(settings.TEXT2SQL_AUTO_REPAIR_ROUNDS))
         result = self._evaluate_candidates(
             db=db,
             question=question,
             candidate_tables=candidates,
-            prompt_hint=prompt_hint,
-            queryable_columns_map=queryable_columns_map,
+            prompt_hint=enhanced_prompt_hint,
+            candidate_columns_map=candidate_columns_map,
             repair_rounds=repair_rounds,
         )
         # 4. 条件分支：根据当前状态选择不同处理路径。
@@ -286,11 +290,11 @@ class Text2SQLFacadeService:
                     "columns": columns,
                     "rows": rows,
                     "answer": self.summary_service.summarize_result(question, result.final_sql, columns, rows),
-                    "field_inference": self.field_inference_service.infer_fields(
-                        question=question,
-                        sql=result.final_sql,
+                    "field_inference": self.field_permission_service.build_query_field_comment_bindings(
+                        db=db,
                         columns=columns,
-                        rows=rows,
+                        table_names=candidates,
+                        queryable_columns_map=result.candidate_columns_map,
                     ),
                 }
             )
@@ -305,17 +309,12 @@ class Text2SQLFacadeService:
         question: str,
         candidate_tables: list[str],
         prompt_hint: str,
-        queryable_columns_map: dict[str, set[str]],
+        candidate_columns_map: dict[str, set[str]],
         repair_rounds: int,
     ) -> SQLAttemptResult:
         """中文备注：处理candidates相关业务数据并返回结果。
         执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
         """
-        # 1. 变量构建：计算并更新 `candidate_columns_map`。
-        candidate_columns_map = {
-            table_name: set(queryable_columns_map.get(table_name, set()))
-            for table_name in candidate_tables
-        }
         table_columns_map = self.schema_service.get_live_table_columns_map(
             db,
             candidate_tables,
@@ -375,111 +374,179 @@ class Text2SQLFacadeService:
             is_valid=is_valid,
             validation_message=message,
             repair_attempts=repair_attempts,
+            candidate_columns_map=candidate_columns_map,
         )
+
+    @staticmethod
+    def _contains_chinese(value: str) -> bool:
+        return any("\u4e00" <= char <= "\u9fff" for char in value)
+
+    @classmethod
+    def _build_search_tokens(cls, text: str, *, max_tokens: int = 256) -> set[str]:
+        token_set: set[str] = set()
+        for raw in _QUESTION_TOKEN_PATTERN.findall(str(text or "").lower()):
+            token = str(raw or "").strip().strip("_")
+            if not token:
+                continue
+
+            if cls._contains_chinese(token):
+                compact = token.replace("_", "")
+                if compact:
+                    token_set.add(compact)
+                if len(compact) >= 2:
+                    # 中文查询常是连续句子，补充 2-gram 提升“注释词/业务词”命中率。
+                    max_grams = min(len(compact) - 1, 64)
+                    for index in range(max_grams):
+                        token_set.add(compact[index : index + 2])
+            else:
+                for part in re.split(r"[_\s]+", token):
+                    normalized = part.strip()
+                    if len(normalized) >= 2:
+                        token_set.add(normalized)
+                if len(token) >= 2:
+                    token_set.add(token)
+
+            if len(token_set) >= max_tokens:
+                break
+        return token_set
+
+    @classmethod
+    def _build_table_profiles(cls, table_options: list[dict[str, str]]) -> dict[str, str]:
+        profiles: dict[str, str] = {}
+        for option in table_options:
+            table_name = str(option.get("table_name") or "").strip()
+            if not table_name:
+                continue
+            table_comment = str(option.get("table_comment") or "").strip()
+            profile_text = f"{table_name} {table_comment}".strip()
+            profiles[table_name] = profile_text
+        return profiles
+
+    @classmethod
+    def _score_table_profile_candidates(cls, question: str, table_profiles: dict[str, str]) -> dict[str, float]:
+        question_tokens = cls._build_search_tokens(question, max_tokens=320)
+        scores: dict[str, float] = {}
+        for table_name, profile in table_profiles.items():
+            profile_tokens = cls._build_search_tokens(profile, max_tokens=320)
+            if not profile_tokens:
+                scores[table_name] = 0.0
+                continue
+
+            overlap = len(profile_tokens.intersection(question_tokens))
+            score = round(min(3.0, float(overlap) * 0.18), 6)
+            scores[table_name] = score
+        return scores
 
     def _route_tables(
         self,
         db: Session,
         question: str,
         selected_tables: list[str],
-        queryable_columns_map: dict[str, set[str]],
     ) -> dict:
-        """中文备注：路由tables相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `table_columns_map`。
-        table_columns_map = self.schema_service.get_live_table_columns_map(
-            db,
-            selected_tables,
-            queryable_columns_map=queryable_columns_map,
-        )
-        # 2. 条件分支：根据当前状态选择不同处理路径。
-        if not table_columns_map:
+        """路由候选表（先向量召回表名，再过滤可用表，再进入真实库查字段）。"""
+        table_options = self.schema_service.list_table_options(db)
+        option_profiles = self._build_table_profiles(table_options)
+        option_lookup = {str(name).lower(): name for name in option_profiles.keys()}
+
+        if selected_tables:
+            route_scope, _ = self.schema_service.validate_selected_tables(db, selected_tables)
+        else:
+            route_scope = list(option_profiles.keys())
+        route_scope = [name for name in route_scope if str(name).lower() in option_lookup]
+        if not route_scope:
             return {
                 "mode": "miss",
                 "candidates": [],
                 "scores": {},
-                "clarify_question": "\u5f53\u524d\u6570\u636e\u5e93\u4e2d\u6ca1\u6709\u53ef\u67e5\u8be2\u7684\u6570\u636e\u8868",
+                "clarify_question": "\u5f53\u524d\u672a\u914d\u7f6e\u53ef\u8def\u7531\u7684\u6570\u636e\u8868",
             }
 
-        # 3. 变量构建：计算并更新 `scores`。
-        scores = self._score_table_candidates(question, table_columns_map)
-        ranked = sorted(table_columns_map.keys(), key=lambda t: (-scores.get(t, 0.0), t))
         max_candidates = max(1, int(settings.TABLE_ROUTE_MAX_CANDIDATES))
-        max_score = max(scores.values()) if scores else 0.0
+        vector_scores = self.vector_service.search_tables(
+            db,
+            question,
+            candidate_tables=route_scope,
+            top_k=max(30, max_candidates * 10),
+            candidate_profiles={name: option_profiles.get(name, "") for name in route_scope},
+        )
 
-        # 4. 条件分支：根据当前状态选择不同处理路径。
-        if len(ranked) == 1:
-            return {"mode": "single", "candidates": ranked, "scores": scores, "clarify_question": ""}
+        queryable_tables = self.field_permission_service.get_queryable_table_names(db, route_scope)
+        if not queryable_tables:
+            return {
+                "mode": "miss",
+                "candidates": [],
+                "scores": {},
+                "clarify_question": "\u5f53\u524d\u8868/\u5b57\u6bb5\u5f00\u5173\u914d\u7f6e\u4e0b\u6ca1\u6709\u53ef\u67e5\u8be2\u7684\u6570\u636e\u8868",
+            }
 
-        # 5. 条件分支：根据当前状态选择不同处理路径。
-        if max_score <= 0:
-            no_signal_cap = min(len(ranked), max(max_candidates, 20))
+        queryable_profiles = {name: option_profiles.get(name, name) for name in queryable_tables}
+        keyword_scores = self._score_table_name_candidates(question, queryable_tables)
+        profile_scores = self._score_table_profile_candidates(question, queryable_profiles)
+
+        final_scores: dict[str, float] = {}
+        for table_name in queryable_tables:
+            semantic_score = float(vector_scores.get(table_name, 0.0))
+            keyword_score = float(keyword_scores.get(table_name, 0.0))
+            profile_score = float(profile_scores.get(table_name, 0.0))
+            # 混合检索核心：先用向量语义召回候选表，再叠加关键词精确分与注释语义分做精排。
+            # 这样能在大表规模下保持召回，同时避免只靠向量导致的误命中。
+            total_score = round(semantic_score * 10.0 + keyword_score + profile_score * 2.0, 6)
+            if total_score > 0:
+                final_scores[table_name] = total_score
+
+        if not final_scores:
             return {
                 "mode": "no_signal",
-                "candidates": ranked[:no_signal_cap],
-                "scores": scores,
-                "clarify_question": "\u8def\u7531\u4fe1\u53f7\u8f83\u5f31\uff0c\u5df2\u6269\u5927\u5019\u9009\u8868\u8303\u56f4",
+                "candidates": [],
+                "scores": {},
+                "clarify_question": "\u8def\u7531\u4fe1\u53f7\u8f83\u5f31\uff0c\u8bf7\u8865\u5145\u66f4\u5177\u4f53\u7684\u4e1a\u52a1\u5bf9\u8c61\u6216\u7b5b\u9009\u6761\u4ef6",
             }
 
-        # 6. 变量构建：计算并更新 `top`。
-        top = ranked[:max_candidates]
-        # 7. 条件分支：根据当前状态选择不同处理路径。
-        if len(top) == 1:
-            return {"mode": "single", "candidates": top, "scores": scores, "clarify_question": ""}
+        ranked = sorted(final_scores.keys(), key=lambda t: (-final_scores.get(t, 0.0), t))
+        if len(ranked) == 1:
+            return {"mode": "single", "candidates": ranked, "scores": final_scores, "clarify_question": ""}
 
-        # 8. 变量构建：计算并更新 `delta`。
-        delta = float(settings.TABLE_ROUTE_AMBIGUITY_DELTA)
-        # 9. 条件分支：根据当前状态选择不同处理路径。
-        if (scores.get(top[0], 0.0) - scores.get(top[1], 0.0)) > delta:
+        top = ranked[:max_candidates]
+        if len(top) == 1:
+            return {"mode": "single", "candidates": top, "scores": final_scores, "clarify_question": ""}
+
+        top_score = float(final_scores.get(top[0], 0.0))
+        second_score = float(final_scores.get(top[1], 0.0))
+        static_delta = float(settings.TABLE_ROUTE_AMBIGUITY_DELTA)
+        dynamic_delta = max(static_delta, top_score * 0.12)
+        if (top_score - second_score) > dynamic_delta:
             return {
                 "mode": "single",
                 "candidates": [top[0]],
-                "scores": scores,
+                "scores": final_scores,
                 "clarify_question": "",
             }
 
-        # 10. 返回结果：输出当前函数最终结果。
         return {
             "mode": "ambiguous",
             "candidates": top,
-            "scores": scores,
+            "scores": final_scores,
             "clarify_question": "\u5019\u9009\u8868\u5b58\u5728\u6b67\u4e49\uff0c\u8bf7\u8865\u5145\u66f4\u5177\u4f53\u7684\u7b5b\u9009\u6761\u4ef6",
         }
 
-    @staticmethod
-    def _score_table_candidates(question: str, table_columns_map: dict[str, set[str]]) -> dict[str, float]:
-        """中文备注：评分table candidates相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `question_text`。
+    @classmethod
+    def _score_table_name_candidates(cls, question: str, table_names: list[str]) -> dict[str, float]:
         question_text = str(question or "").lower()
-        question_tokens = {token.lower() for token in _QUESTION_TOKEN_PATTERN.findall(question_text) if token}
+        question_tokens = cls._build_search_tokens(question_text, max_tokens=320)
         scores: dict[str, float] = {}
+        for table_name in table_names:
+            normalized_table = str(table_name or "").strip().lower()
+            if not normalized_table:
+                continue
 
-        # 2. 迭代处理：遍历集合并逐项构建结果。
-        for table_name, columns in table_columns_map.items():
-            norm_table = table_name.strip().lower()
             score = 0.0
-            if norm_table and norm_table in question_text:
+            if normalized_table in question_text:
                 score += 2.0
 
-            table_tokens = {
-                token.lower()
-                for token in re.split(r"[^a-zA-Z0-9\u4e00-\u9fff]+", norm_table)
-                if token
-            }
-            for token in table_tokens:
+            for token in cls._build_search_tokens(normalized_table, max_tokens=64):
                 if token in question_tokens:
-                    score += 1.0
-
-            for column in columns:
-                norm_col = str(column).strip().lower()
-                if norm_col and norm_col in question_text:
-                    score += 0.2
-
+                    score += 0.85
             scores[table_name] = round(score, 6)
-        # 3. 返回结果：输出当前函数最终结果。
         return scores
 
     @staticmethod

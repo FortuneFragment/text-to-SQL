@@ -106,15 +106,6 @@
           <button class="btn-secondary" @click="goToJumpPage">GO</button>
         </div>
       </section>
-
-      <section class="prompt-card panel">
-        <h3>配置业务提示词</h3>
-        <p class="text-muted mb-4">设定 Text2SQL 生成 SQL 时的偏好和规则。</p>
-        <textarea v-model="promptHint" rows="3" placeholder="例如：优先按最近一周统计；字段需要给出中文可读含义" class="w-full"></textarea>
-        <div class="mt-4 text-right">
-          <button class="btn-primary" @click="savePromptHint" :disabled="loading.prompt">保存提示词设置</button>
-        </div>
-      </section>
     </template>
   </section>
 </template>
@@ -125,11 +116,11 @@ import { RouterLink } from "vue-router";
 import { apiRequest } from "../api/client";
 
 // 原有逻辑原封不动
-const loading = reactive({ mutate: false, prompt: false });
+const loading = reactive({ mutate: false });
 const tablePage = reactive({ page: 1, page_size: 12 });
 const filters = reactive({ keyword: "", quickTable: "" });
 const tableOptions = ref([]); const checkedTableNames = ref([]); const enabledTableNames = ref([]);
-const promptHint = ref(""); const connectionConfigured = ref(false);
+const connectionConfigured = ref(false);
 const notice = ref(""); const noticeType = ref("info"); const jumpPage = ref(1);
 
 const enabledSet = computed(() => new Set(enabledTableNames.value));
@@ -180,14 +171,14 @@ async function loadTableOptions() {
   const data = await apiRequest("/text2sql/table/options"); tableOptions.value = Array.isArray(data.tables) ? data.tables : [];
   const tableNameSet = new Set(tableOptions.value.map((item) => item.table_name)); checkedTableNames.value = checkedTableNames.value.filter((name) => tableNameSet.has(name));
 }
-async function loadConfig() { const data = await apiRequest("/text2sql/table/config"); enabledTableNames.value = Array.isArray(data.selected_tables) ? data.selected_tables : []; promptHint.value = data.prompt_hint || ""; }
-async function saveConfig(selectedTables, hint, successMessage, loadingKey = "mutate") {
-  loading[loadingKey] = true;
+async function loadConfig() { const data = await apiRequest("/text2sql/table/config"); enabledTableNames.value = Array.isArray(data.selected_tables) ? data.selected_tables : []; }
+async function saveConfig(selectedTables, successMessage) {
+  loading.mutate = true;
   try {
-    const data = await apiRequest("/text2sql/table/config", { method: "PUT", body: JSON.stringify({ selected_tables: selectedTables, prompt_hint: hint }) });
-    enabledTableNames.value = Array.isArray(data.selected_tables) ? data.selected_tables : []; promptHint.value = data.prompt_hint || "";
+    const data = await apiRequest("/text2sql/table/config", { method: "PUT", body: JSON.stringify({ selected_tables: selectedTables }) });
+    enabledTableNames.value = Array.isArray(data.selected_tables) ? data.selected_tables : [];
     setNotice(successMessage, "success");
-  } catch (error) { setNotice(`保存失败：${error.message}`, "error"); } finally { loading[loadingKey] = false; }
+  } catch (error) { setNotice(`保存失败：${error.message}`, "error"); } finally { loading.mutate = false; }
 }
 async function searchTables() { tablePage.page = 1; }
 async function applyQuickTableFilter() { filters.keyword = filters.quickTable || ""; tablePage.page = 1; }
@@ -199,13 +190,12 @@ async function applyTableSwitch(tableNames, enabled) {
   if (!tableNames.length) { setNotice("请至少选择一个表", "error"); return; }
   const nextSet = new Set(enabledTableNames.value);
   for (const tableName of tableNames) { if (enabled) nextSet.add(tableName); else nextSet.delete(tableName); }
-  await saveConfig(buildOrderedSelectedTables(nextSet), promptHint.value, enabled ? "表批量开启成功" : "表批量关闭成功", "mutate");
+  await saveConfig(buildOrderedSelectedTables(nextSet), enabled ? "表批量开启成功" : "表批量关闭成功");
 }
 async function switchSingle(item, event) { await applyTableSwitch([item.table_name], event.target.checked); }
 async function batchSwitchSelected(enabled) { await applyTableSwitch(checkedTableNames.value, enabled); }
 async function batchSwitchCurrentPage(enabled) { await applyTableSwitch(pageItems.value.map((item) => item.table_name), enabled); }
 async function batchSwitchByFilter(enabled) { await applyTableSwitch(filteredRows.value.map((item) => item.table_name), enabled); }
-async function savePromptHint() { await saveConfig(buildOrderedSelectedTables(new Set(enabledTableNames.value)), promptHint.value, "提示词保存成功", "prompt"); }
 
 onMounted(async () => {
   try { await loadConnectionStatus(); if (!connectionConfigured.value) return; await Promise.all([loadTableOptions(), loadConfig()]); }

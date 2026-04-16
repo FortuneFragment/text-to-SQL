@@ -10,7 +10,7 @@
 ## 环境要求
 - Python 3.10+
 - Node.js 18+
-- Docker（可选，仅用于 MySQL / Redis）
+- Docker（可选，用于 MySQL / Redis / MinIO / Milvus）
 
 ## 后端启动（手动激活虚拟环境）
 按当前项目约定，后端启动步骤如下：
@@ -44,16 +44,36 @@ cd t2s-backend
 docker compose up -d
 ```
 
-如果需要同时启动 Celery Worker：
+如需启动 Celery Worker（本地进程）：
 
 ```powershell
-docker compose --profile task up -d
+cd t2s-backend
+.\venv\Scripts\activate
+celery -A tasks.celery_app.celery_app worker -l info -Q text2sql-kb
 ```
 
 说明：如果是首次启动，需要手动创建数据库：
 
 ```powershell
 docker exec -it text2sql_mysql mysql -uroot -proot -e "CREATE DATABASE IF NOT EXISTS text2sql_system DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; CREATE DATABASE IF NOT EXISTS text2sql_biz DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+```
+
+## 文档切分异步任务（Celery + Milvus）
+提交任务：
+
+```http
+POST /api/v1/text2sql/task/document/ingest
+```
+
+支持三种输入方式（任选其一）：
+- `text`：直接提交文档文本
+- `local_path`：读取后端机器本地文件
+- `object_name` + `bucket_name`：从 MinIO 读取对象
+
+查询状态：
+
+```http
+GET /api/v1/text2sql/task/{task_id}
 ```
 
 

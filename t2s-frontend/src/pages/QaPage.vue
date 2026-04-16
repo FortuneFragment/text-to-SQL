@@ -10,6 +10,7 @@
           <RouterLink to="/connection" class="quick-link">连接配置</RouterLink>
           <RouterLink to="/table" class="quick-link">表开关</RouterLink>
           <RouterLink to="/field" class="quick-link">字段开关</RouterLink>
+          <RouterLink to="/knowledge" class="quick-link">知识库上传</RouterLink>
         </div>
       </header>
 

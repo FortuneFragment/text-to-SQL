@@ -90,6 +90,25 @@ class Text2SQLSchemaService:
         return cls._safe_text(payload.get("comment"))
 
     @classmethod
+    def _extract_primary_key_columns(cls, inspector, table_name: str) -> set[str]:
+        """中文备注：提取primary key columns相关业务数据并返回结果。"""
+        # 1. 核心处理：执行当前阶段的业务逻辑。
+        try:
+            payload = inspector.get_pk_constraint(table_name) or {}
+        except Exception:  # noqa: BLE001
+            return set()
+        # 2. 变量构建：计算并更新 `raw_columns`。
+        raw_columns = payload.get("constrained_columns") if isinstance(payload, dict) else []
+        primary_keys: set[str] = set()
+        # 3. 迭代处理：遍历集合并逐项构建结果。
+        for raw_name in (raw_columns or []):
+            normalized = cls._normalize_identifier(cls._safe_text(raw_name))
+            if normalized:
+                primary_keys.add(normalized)
+        # 4. 返回结果：输出当前函数最终结果。
+        return primary_keys
+
+    @classmethod
     def _resolve_target_tables(
         cls,
         all_tables: list[str],
@@ -239,6 +258,51 @@ class Text2SQLSchemaService:
         inspector = inspect(engine)
         # 2. 目标解析与合法性校验：解析输入范围并拦截非法数据。
         return self._resolve_target_tables(inspector.get_table_names(), table_names)
+
+    def get_live_table_column_metadata(
+        self,
+        db: Session,
+        table_names: list[str] | None = None,
+        queryable_columns_map: dict[str, set[str]] | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """中文备注：获取live table column metadata相关业务数据并返回结果。"""
+        # 1. 引擎与反射能力初始化：准备数据库连接和元数据提取能力。
+        engine = self.connection_service.get_engine(db)
+        inspector = inspect(engine)
+        all_tables = inspector.get_table_names()
+        resolved_tables, missing_tables = self._resolve_target_tables(all_tables, table_names)
+        # 2. 目标解析与合法性校验：解析输入范围并拦截非法数据。
+        if table_names and missing_tables:
+            raise ValueError(f"以下表在数据库中不存在: {', '.join(missing_tables)}")
+
+        # 3. 标准化处理：统一标识符和配置格式，避免后续匹配偏差。
+        normalized_queryable_map = self._normalize_queryable_columns_map(queryable_columns_map)
+        metadata: dict[str, list[dict[str, Any]]] = {}
+        # 4. 迭代处理：遍历集合并逐项构建结果。
+        for table_name in resolved_tables:
+            normalized_table = self._normalize_identifier(table_name)
+            allowed_columns = normalized_queryable_map.get(normalized_table)
+            primary_keys = self._extract_primary_key_columns(inspector, table_name)
+            column_items: list[dict[str, Any]] = []
+
+            for column in inspector.get_columns(table_name):
+                column_name = self._safe_text(column.get("name"))
+                if not column_name:
+                    continue
+                normalized_column = self._normalize_identifier(column_name)
+                if allowed_columns is not None and normalized_column not in allowed_columns:
+                    continue
+
+                column_items.append(
+                    {
+                        "name": column_name,
+                        "type": self._safe_text(column.get("type")),
+                        "is_primary_key": normalized_column in primary_keys,
+                    }
+                )
+            metadata[table_name] = column_items
+        # 5. 返回结果：输出当前函数最终结果。
+        return metadata
 
     def get_live_table_columns_map(
         self,

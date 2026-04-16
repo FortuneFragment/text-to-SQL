@@ -1,6 +1,7 @@
 ﻿from __future__ import annotations
 
 import hashlib
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -185,11 +186,10 @@ class Text2SQLFieldPermissionService:
         """中文备注：获取queryable columns map相关业务数据并返回结果。
         执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
         """
-        # 1. 条件分支：根据当前状态选择不同处理路径。
-        if table_names is None:
-            resolved_tables = self.schema_service.list_table_names(db)
-        else:
-            resolved_tables, _ = self.schema_service.validate_selected_tables(db, table_names)
+        # 1. 变量构建：计算并更新 `resolved_tables`。
+        resolved_tables = self.get_queryable_table_names(db, table_names)
+        if not resolved_tables:
+            return {}
 
         # 2. 变量构建：计算并更新 `schema`。
         schema = self.schema_service.list_schema_overview(db, resolved_tables)
@@ -218,6 +218,146 @@ class Text2SQLFieldPermissionService:
                 normalized_column = self._normalize_identifier(column.name)
                 if table_permission.get(normalized_column, True):
                     enabled_columns.add(column.name)
-            result[table.table_name] = enabled_columns
+            if enabled_columns:
+                result[table.table_name] = enabled_columns
         # 7. 返回结果：输出当前函数最终结果。
         return result
+
+    def get_queryable_table_names(
+        self,
+        db: Session,
+        table_names: list[str] | None = None,
+    ) -> list[str]:
+        """返回当前权限配置下可查询的表名列表。"""
+        if table_names is None:
+            resolved_tables = self.schema_service.list_table_names(db)
+        else:
+            resolved_tables, _ = self.schema_service.validate_selected_tables(db, table_names)
+        if not resolved_tables:
+            return []
+
+        normalized_lookup = {self._normalize_identifier(table_name): table_name for table_name in resolved_tables}
+        connection_key = self._normalize_connection_key(self.config_service.get_connection_key(db))
+        records = Text2SQLFieldPermissionRepository(db).list_by_user_and_connection(
+            GLOBAL_CONFIG_USER_ID,
+            connection_key,
+        )
+
+        has_records: dict[str, bool] = {}
+        has_enabled: dict[str, bool] = {}
+        for record in records:
+            normalized_table = self._normalize_identifier(record.table_name)
+            if normalized_table not in normalized_lookup:
+                continue
+            has_records[normalized_table] = True
+            if bool(record.query_enabled):
+                has_enabled[normalized_table] = True
+
+        queryable_tables: list[str] = []
+        for table_name in resolved_tables:
+            normalized_table = self._normalize_identifier(table_name)
+            if not has_records.get(normalized_table, False):
+                queryable_tables.append(table_name)
+                continue
+            if has_enabled.get(normalized_table, False):
+                queryable_tables.append(table_name)
+        return queryable_tables
+
+    @staticmethod
+    def _pick_best_comment_match(matches: list[dict[str, str]]) -> dict[str, str]:
+        """中文备注：从多个命中项中选择注释信息最完整的一项。"""
+        if not matches:
+            return {}
+        ranked = sorted(
+            matches,
+            key=lambda item: (
+                bool(str(item.get("column_comment") or "").strip()),
+                bool(str(item.get("table_comment") or "").strip()),
+                str(item.get("table_name") or ""),
+                str(item.get("column_name") or ""),
+            ),
+            reverse=True,
+        )
+        return ranked[0]
+
+    def build_query_field_comment_bindings(
+        self,
+        db: Session,
+        columns: list[str],
+        table_names: list[str] | None,
+        queryable_columns_map: dict[str, set[str]] | None = None,
+    ) -> list[dict[str, Any]]:
+        """中文备注：将查询结果字段绑定到数据库原生 table/column 注释并返回前端。"""
+        if not columns:
+            return []
+
+        normalized_tables = [str(table).strip() for table in (table_names or []) if str(table).strip()]
+        schema_lookup: dict[str, list[dict[str, str]]] = {}
+        if normalized_tables:
+            try:
+                schema = self.schema_service.list_schema_overview(
+                    db,
+                    table_names=normalized_tables,
+                    queryable_columns_map=queryable_columns_map,
+                )
+                for table in schema.tables:
+                    table_name = str(table.table_name or "")
+                    table_comment = str(table.table_comment or "")
+                    for column in table.columns:
+                        column_name = str(column.name or "")
+                        if not column_name:
+                            continue
+                        normalized_column = self._normalize_identifier(column_name)
+                        if not normalized_column:
+                            continue
+                        schema_lookup.setdefault(normalized_column, []).append(
+                            {
+                                "table_name": table_name,
+                                "table_comment": table_comment,
+                                "column_name": column_name,
+                                "column_comment": str(column.comment or ""),
+                            }
+                        )
+            except Exception:  # noqa: BLE001
+                schema_lookup = {}
+
+        bindings: list[dict[str, Any]] = []
+        for raw_column in columns:
+            column = str(raw_column or "").strip()
+            if not column:
+                continue
+            normalized_column = self._normalize_identifier(column)
+            matches = schema_lookup.get(normalized_column, [])
+            chosen = self._pick_best_comment_match(matches)
+
+            table_name = str(chosen.get("table_name") or "")
+            table_comment = str(chosen.get("table_comment") or "")
+            source_column = str(chosen.get("column_name") or column)
+            column_comment = str(chosen.get("column_comment") or "")
+            inferred_meaning = column_comment or table_comment or column
+            confidence = 1.0 if (column_comment or table_comment) else 0.0
+
+            if matches and len(matches) > 1:
+                candidate_tables = "、".join(
+                    sorted({str(item.get("table_name") or "") for item in matches if str(item.get("table_name") or "")})
+                )
+                reason = f"字段在多个表命中（{candidate_tables}），按注释完整度绑定到 {table_name}.{source_column}"
+            elif matches:
+                reason = f"已绑定数据库注释：{table_name}.{source_column}"
+            else:
+                reason = "未命中数据库字段注释，返回字段原名"
+
+            bindings.append(
+                {
+                    "column": column,
+                    "inferred_meaning": inferred_meaning,
+                    "confidence": confidence,
+                    "reason": reason,
+                    "table_name": table_name,
+                    "table_comment": table_comment,
+                    "column_name": source_column,
+                    "column_comment": column_comment,
+                }
+            )
+        return bindings
+

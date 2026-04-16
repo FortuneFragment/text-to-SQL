@@ -9,6 +9,7 @@
         <RouterLink to="/connection" class="nav-link" active-class="nav-link-active">外部数据库连接</RouterLink>
         <RouterLink to="/table" class="nav-link" active-class="nav-link-active">表开关</RouterLink>
         <RouterLink to="/field" class="nav-link" active-class="nav-link-active">字段开关</RouterLink>
+        <RouterLink to="/knowledge" class="nav-link" active-class="nav-link-active">知识库上传</RouterLink>
         <RouterLink to="/qa" class="nav-link" active-class="nav-link-active">知识问答</RouterLink>
       </nav>
     </header>
