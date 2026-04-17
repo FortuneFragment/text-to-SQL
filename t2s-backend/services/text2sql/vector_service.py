@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import re
@@ -17,11 +17,11 @@ _TABLE_TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9_]+|[\u4e00-\u9fff]+")
 
 
 class Text2SQLVectorService:
-    """Text2SQL table-routing vector retrieval service."""
+    """提供表级向量检索打分，用于路由候选表。"""
 
-    def __init__(self, kb_id: int = 2):
-        # Convention: knowledge base ID=2 is used for table-routing semantic retrieval.
-        self.kb_id = int(kb_id)
+    def __init__(self, kb_id: int | None = 0):
+        # 0/None 表示自动选择知识库。
+        self.kb_id = self._safe_positive_int(kb_id) or 0
 
     @staticmethod
     def _normalize_identifier(value: str | None) -> str:
@@ -87,6 +87,14 @@ class Text2SQLVectorService:
             return None
 
     @staticmethod
+    def _safe_positive_int(value: object) -> int | None:
+        try:
+            parsed = int(value) if value is not None else 0
+        except (TypeError, ValueError):
+            return None
+        return parsed if parsed > 0 else None
+
+    @staticmethod
     def _load_file_name_lookup(db: Session, file_ids: set[int]) -> dict[int, str]:
         if not file_ids:
             return {}
@@ -97,11 +105,38 @@ class Text2SQLVectorService:
         )
         return {int(file_id): str(file_name or "") for file_id, file_name in rows}
 
-    def _resolve_collection_name(self, db: Session) -> str:
-        kb = KnowledgeBaseRepository(db).get_by_id(self.kb_id)
+    def _resolve_route_kb(self, db: Session, requested_kb_id: int | None = None) -> tuple[int, object | None]:
+        repo = KnowledgeBaseRepository(db)
+
+        explicit_kb_id = self._safe_positive_int(requested_kb_id)
+        if explicit_kb_id:
+            kb = repo.get_by_id(explicit_kb_id)
+            if kb is not None:
+                return explicit_kb_id, kb
+
+        configured_kb_id = self._safe_positive_int(self.kb_id)
+        if configured_kb_id:
+            kb = repo.get_by_id(configured_kb_id)
+            if kb is not None:
+                return configured_kb_id, kb
+
+        default_kb = repo.get_default()
+        if default_kb is not None and self._safe_positive_int(getattr(default_kb, "id", None)):
+            return int(default_kb.id), default_kb
+
+        all_kbs = repo.list_all()
+        for kb in all_kbs:
+            resolved_id = self._safe_positive_int(getattr(kb, "id", None))
+            if resolved_id:
+                return resolved_id, kb
+
+        return 0, None
+
+    def _resolve_collection_name(self, db: Session, requested_kb_id: int | None = None) -> tuple[int, str]:
+        active_kb_id, kb = self._resolve_route_kb(db, requested_kb_id=requested_kb_id)
         if kb is None:
-            return ""
-        return str(kb.collection_name or "").strip()
+            return 0, ""
+        return active_kb_id, str(getattr(kb, "collection_name", "") or "").strip()
 
     def search_tables(
         self,
@@ -111,14 +146,20 @@ class Text2SQLVectorService:
         candidate_tables: list[str],
         top_k: int = 15,
         candidate_profiles: dict[str, str] | None = None,
+        route_kb_id: int | None = None,
     ) -> dict[str, float]:
         question_text = str(question or "").strip()
         if not question_text or not candidate_tables:
             return {}
 
-        collection_name = self._resolve_collection_name(db)
-        if not collection_name:
-            _logger.warning("Vector KB not found: kb_id=%s", self.kb_id)
+        active_kb_id, collection_name = self._resolve_collection_name(db, requested_kb_id=route_kb_id)
+        if not collection_name or active_kb_id <= 0:
+            _logger.warning(
+                "Vector KB not found: active_kb_id=%s requested_kb_id=%s configured_kb_id=%s",
+                active_kb_id,
+                route_kb_id,
+                self.kb_id,
+            )
             return {}
 
         try:
@@ -138,12 +179,16 @@ class Text2SQLVectorService:
             raw_hits = milvus_repo.search_chunks(
                 collection_name=collection_name,
                 vector_dim=expected_dim,
-                kb_id=self.kb_id,
+                kb_id=active_kb_id,
                 query_vector=query_vector,
                 top_k=query_limit,
             )
         except Exception:  # noqa: BLE001
-            _logger.exception("Vector search failed for kb_id=%s", self.kb_id)
+            _logger.exception(
+                "Vector search failed for kb_id=%s requested_kb_id=%s",
+                active_kb_id,
+                route_kb_id,
+            )
             return {}
 
         profile_lookup = {
@@ -174,7 +219,10 @@ class Text2SQLVectorService:
                 file_ids.add(file_id)
         file_name_lookup = self._load_file_name_lookup(db, file_ids)
 
-        scores: dict[str, float] = {}
+        score_max: dict[str, float] = {}
+        score_sum: dict[str, float] = defaultdict(float)
+        score_hits: dict[str, int] = defaultdict(int)
+
         for hit in raw_hits:
             hit_text = str(hit.get("text") or "")
             base_score = self._normalize_similarity(hit.get("score"))
@@ -201,6 +249,13 @@ class Text2SQLVectorService:
             if not matched_tables:
                 continue
 
+            # 如果一个段落命中了过多的候选表，说明它是缺乏区分度的全局性文本（如完整的表清单、整体设计文档）。
+            # 这种文本如果打高分，会导致所有表的得分丧失区分度，让不相关的表因为名字靠前而挤占 Top-K。
+            # 因此，当命中的表超过 3 个时，进行大幅降权惩罚。
+            diversity_penalty = 1.0
+            if len(matched_tables) > 3:
+                diversity_penalty = max(0.01, 3.0 / float(len(matched_tables)))
+
             for normalized_table in matched_tables:
                 terms = table_terms.get(normalized_table, set())
                 if not terms:
@@ -219,13 +274,27 @@ class Text2SQLVectorService:
                 else:
                     factor = 0.56
 
-                score = round(base_score * factor, 6)
+                score = round(base_score * factor * diversity_penalty, 6)
                 if score <= 0:
                     continue
 
                 real_table = table_lookup.get(normalized_table)
                 if not real_table:
                     continue
-                scores[real_table] = round(max(scores.get(real_table, 0.0), score), 6)
+                score_max[real_table] = round(max(score_max.get(real_table, 0.0), score), 6)
+                score_sum[real_table] = float(score_sum.get(real_table, 0.0)) + score
+                score_hits[real_table] = int(score_hits.get(real_table, 0)) + 1
 
-        return scores
+        blended_scores: dict[str, float] = {}
+        for table_name, max_score in score_max.items():
+            total_score = float(score_sum.get(table_name, 0.0))
+            hit_count = int(score_hits.get(table_name, 0))
+            extra_signal = max(0.0, total_score - float(max_score))
+            blended = (
+                float(max_score)
+                + min(0.35, extra_signal * 0.3)
+                + min(0.15, float(hit_count) * 0.03)
+            )
+            blended_scores[table_name] = round(max(0.0, min(1.0, blended)), 6)
+
+        return blended_scores
