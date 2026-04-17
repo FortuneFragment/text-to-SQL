@@ -51,17 +51,18 @@ class Settings(BaseSettings):
     TEXT2SQL_MAX_ROWS: int = 50
     TEXT2SQL_READONLY: bool = True
     TEXT2SQL_EXEC_TIMEOUT_SECONDS: int = 20
-    TEXT2SQL_AUTO_REPAIR_ROUNDS: int = 1
-    TEXT2SQL_MAX_JOIN_TABLES: int = 5
+    TEXT2SQL_AUTO_REPAIR_ROUNDS: int = 2
+    TEXT2SQL_MAX_JOIN_TABLES: int = 1
     TEXT2SQL_QUERY_LOG_ENABLED: bool = True
     TEXT2SQL_ENUM_HINT_ENABLED: bool = True
     TEXT2SQL_ENUM_HINT_SAMPLE_ROWS: int = 100
     TEXT2SQL_ENUM_HINT_TOP_VALUES: int = 5
-    TEXT2SQL_ENUM_HINT_MAX_COLUMNS_PER_TABLE: int = 4
+    TEXT2SQL_ENUM_HINT_MAX_COLUMNS_PER_TABLE: int = 6
     TEXT2SQL_ENUM_HINT_MAX_WORKERS: int = 4
     TEXT2SQL_ENUM_HINT_PROBE_TIMEOUT_MS: int = 300
-    TEXT2SQL_ENUM_HINT_MAX_PROMPT_CHARS: int = 1200
+    TEXT2SQL_ENUM_HINT_MAX_PROMPT_CHARS: int = 2400
     TEXT2SQL_ENUM_HINT_MAX_TABLES: int = 3
+    TABLE_ROUTE_KB_ID: int = 0
     TABLE_ROUTE_MAX_CANDIDATES: int = 3
     TABLE_ROUTE_AMBIGUITY_DELTA: float = 0.15
 
@@ -95,6 +96,9 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def SQLALCHEMY_DATABASE_URI(self) -> str:
+        """中文备注：处理SQLALCHEMY_DATABASE_URI相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         return (
             f"mysql+pymysql://{self.MYSQL_USER}:{self.MYSQL_PASSWORD}"
             f"@{self.MYSQL_HOST}:{self.MYSQL_PORT}/{self.MYSQL_DB}?charset=utf8mb4"
@@ -103,21 +107,33 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def EFFECTIVE_LLM_BASE_URL(self) -> str:
+        """中文备注：处理EFFECTIVE_LLM_BASE_URL相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         return self.LLM_BASE_URL
 
     @computed_field
     @property
     def EFFECTIVE_LLM_API_KEY(self) -> str:
+        """中文备注：处理EFFECTIVE_LLM_API_KEY相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         return self.LLM_API_KEY
 
     @computed_field
     @property
     def EFFECTIVE_LLM_MODEL(self) -> str:
+        """中文备注：处理EFFECTIVE_LLM_MODEL相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         return self.LLM_MODEL
 
     @computed_field
     @property
     def EFFECTIVE_REDIS_URL(self) -> str:
+        """中文备注：处理EFFECTIVE_REDIS_URL相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         password = quote_plus(self.REDIS_PASSWORD) if self.REDIS_PASSWORD else ""
         auth = f":{password}@" if password else ""
         return f"redis://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
@@ -125,11 +141,17 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def EFFECTIVE_CELERY_BROKER_URL(self) -> str:
+        """中文备注：处理EFFECTIVE_CELERY_BROKER_URL相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         return self.CELERY_BROKER_URL or self.EFFECTIVE_REDIS_URL
 
     @computed_field
     @property
     def EFFECTIVE_CELERY_RESULT_BACKEND(self) -> str:
+        """中文备注：处理EFFECTIVE_CELERY_RESULT_BACKEND相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         return self.CELERY_RESULT_BACKEND or self.EFFECTIVE_REDIS_URL
 
     model_config = SettingsConfigDict(

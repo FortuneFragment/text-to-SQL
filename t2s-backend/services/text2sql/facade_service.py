@@ -514,7 +514,12 @@ class Text2SQLFacadeService:
                 "clarify_question": "\u8def\u7531\u4fe1\u53f7\u8f83\u5f31\uff0c\u8bf7\u8865\u5145\u66f4\u5177\u4f53\u7684\u4e1a\u52a1\u5bf9\u8c61\u6216\u7b5b\u9009\u6761\u4ef6",
             }
         ranked = sorted(final_scores.keys(), key=lambda t: (-final_scores.get(t, 0.0), t))
-        top_k = min(max(1, int(settings.TABLE_ROUTE_MAX_CANDIDATES)), len(ranked))
+        # 扩大 LLM 的候选池：
+        # 如果传统 token 和向量在初筛时把正确结果排到了 5 到 10 名（由于同义词等问题），
+        # 只要保证 top_k 足够大（至少 15），大模型就能凭借自身的常识把它精准捞回来。
+        config_top_k = int(settings.TABLE_ROUTE_MAX_CANDIDATES)
+        effective_top_k = max(15, config_top_k)
+        top_k = min(effective_top_k, len(ranked))
         top_candidates = ranked[:top_k]
         _console_logger.info(
             "[route] top_candidates=%s scores=%s",

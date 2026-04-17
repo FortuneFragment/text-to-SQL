@@ -5,9 +5,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class Text2SQLConnectionPayload(BaseModel):
-    """中文备注：封装连接管理。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """前端提交的数据库连接参数。"""
+
     db_type: Literal["mysql"] = "mysql"
     host: str = Field(min_length=1, max_length=255)
     port: int = Field(default=3306, ge=1, le=65535)
@@ -18,9 +17,8 @@ class Text2SQLConnectionPayload(BaseModel):
 
 
 class Text2SQLConnectionResponse(BaseModel):
-    """中文备注：封装连接管理。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """返回给前端的连接配置（不包含明文密码）。"""
+
     configured: bool = False
     db_type: Literal["mysql"] | None = None
     host: str = ""
@@ -32,57 +30,50 @@ class Text2SQLConnectionResponse(BaseModel):
 
 
 class Text2SQLConnectionTestResponse(BaseModel):
-    """中文备注：封装连接管理。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """连接测试接口的返回结构。"""
+
     ok: bool
     message: str = ""
 
 
 class ColumnInfo(BaseModel):
-    """中文备注：封装ColumnInfo相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """单个字段的基础信息。"""
+
     name: str
     type: str
     comment: str = ""
 
 
 class TableInfo(BaseModel):
-    """中文备注：封装TableInfo相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """单张表的结构信息。"""
+
     table_name: str
     table_comment: str = ""
     columns: list[ColumnInfo] = Field(default_factory=list)
 
 
 class Text2SQLSchemaResponse(BaseModel):
-    """中文备注：封装Schema 信息处理。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """数据库 Schema 概览响应。"""
+
     tables: list[TableInfo] = Field(default_factory=list)
 
 
 class Text2SQLTableOption(BaseModel):
-    """中文备注：封装Text2SQLTableOption相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """表开关页面展示的表项。"""
+
     table_name: str
     table_comment: str = ""
 
 
 class Text2SQLTableOptionsResponse(BaseModel):
-    """中文备注：封装Text2SQLTableOptionsResponse相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """表开关页面的表列表响应。"""
+
     tables: list[Text2SQLTableOption] = Field(default_factory=list)
 
 
 class Text2SQLTableFieldItem(BaseModel):
-    """中文备注：封装Text2SQLTableFieldItem相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """字段开关页面的单个字段项。"""
+
     name: str
     type: str
     comment: str = ""
@@ -90,56 +81,49 @@ class Text2SQLTableFieldItem(BaseModel):
 
 
 class Text2SQLTableFieldsResponse(BaseModel):
-    """中文备注：封装Text2SQLTableFieldsResponse相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """字段开关页面的整表字段响应。"""
+
     table_name: str
     table_comment: str = ""
     fields: list[Text2SQLTableFieldItem] = Field(default_factory=list)
 
 
 class Text2SQLConfigResponse(BaseModel):
-    """中文备注：封装配置管理。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """当前连接对应的配置响应。"""
+
     selected_tables: list[str] = Field(default_factory=list)
     prompt_hint: str = ""
 
 
 class UpdateText2SQLConfigRequest(BaseModel):
-    """中文备注：封装配置管理。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """更新表开关和提示词时的请求体。"""
+
     selected_tables: list[str] = Field(default_factory=list)
     prompt_hint: str = ""
 
 
 class UpdateText2SQLTableFieldItem(BaseModel):
-    """中文备注：封装UpdateText2SQLTableFieldItem相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """更新单个字段开关的请求项。"""
+
     name: str = Field(min_length=1, max_length=255)
     query_enabled: bool = True
 
 
 class UpdateText2SQLTableFieldsRequest(BaseModel):
-    """中文备注：封装UpdateText2SQLTableFieldsRequest相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """更新整张表字段开关的请求体。"""
+
     fields: list[UpdateText2SQLTableFieldItem] = Field(default_factory=list, min_length=1)
 
 
 class Text2SQLQueryRequest(BaseModel):
-    """中文备注：封装Text2SQLQueryRequest相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """自然语言问答请求体。"""
+
     question: str = Field(min_length=1, max_length=4000)
 
 
 class Text2SQLFieldInferenceItem(BaseModel):
-    """中文备注：封装Text2SQLFieldInferenceItem相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """查询结果字段与数据库注释的绑定信息。"""
+
     column: str
     inferred_meaning: str
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
@@ -151,9 +135,8 @@ class Text2SQLFieldInferenceItem(BaseModel):
 
 
 class Text2SQLQueryResponse(BaseModel):
-    """中文备注：封装Text2SQLQueryResponse相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """问答接口返回的 SQL、数据和总结。"""
+
     sql: str
     columns: list[str] = Field(default_factory=list)
     rows: list[dict[str, Any]] = Field(default_factory=list)
@@ -164,18 +147,18 @@ class Text2SQLQueryResponse(BaseModel):
 
 
 class Text2SQLDebugGenerateResponse(BaseModel):
-    """中文备注：封装Text2SQLDebugGenerateResponse相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """调试接口返回的 SQL 生成与校验信息。"""
+
     sql: str
     validation_passed: bool
     validation_message: str = ""
+    route_mode: str = ""
+    route_tables: list[str] = Field(default_factory=list)
 
 
 class Text2SQLQueryLogItem(BaseModel):
-    """中文备注：封装Text2SQLQueryLogItem相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """查询日志列表中的单条记录。"""
+
     id: int
     question: str
     generated_sql: str | None = None

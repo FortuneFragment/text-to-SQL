@@ -16,16 +16,10 @@ _SUMMARIZE_PROMPT = ChatPromptTemplate.from_messages([
     ("human", "用户问题：{question}\n\n执行的SQL：\n{sql}\n\n查询结果：\n{result_text}"),
 ])
 
-
 class Text2SQLSummaryService:
-    """中文备注：封装结果总结。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """把 SQL 结果整理成面向用户的自然语言总结。"""
     def __init__(self, model_provider: Callable[[], ChatOpenAI | None]):
-        """中文备注：处理对象生命周期中的 __init__ 特殊逻辑。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `self._model_provider`。
+        """注入模型提供器。"""
         self._model_provider = model_provider
 
     def summarize_result(
@@ -35,19 +29,12 @@ class Text2SQLSummaryService:
         columns: list[str],
         rows: list[dict[str, Any]],
     ) -> str:
-        """中文备注：处理result相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `model`。
+        """生成查询结果摘要；模型不可用时使用兜底文案。"""
         model = self._model_provider()
-        # 2. 条件分支：根据当前状态选择不同处理路径。
         if model is None:
             return self.build_fallback_summary(columns, rows)
-
-        # 3. 变量构建：计算并更新 `result_text`。
         result_text = self.format_result_text(columns, rows)
         chain = _SUMMARIZE_PROMPT | model | StrOutputParser()
-        # 4. 返回结果：输出当前函数最终结果。
         return chain.invoke(
             {
                 "question": question,
@@ -58,27 +45,17 @@ class Text2SQLSummaryService:
 
     @staticmethod
     def build_fallback_summary(columns: list[str], rows: list[dict[str, Any]]) -> str:
-        """中文备注：构建fallback summary相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 条件分支：根据当前状态选择不同处理路径。
+        """在无模型场景下生成简明中文摘要。"""
         if not rows:
             return "未查到符合条件的数据。"
-
-        # 2. 变量构建：计算并更新 `total_rows`。
         total_rows = len(rows)
         total_columns = len(columns)
-        # 3. 条件分支：根据当前状态选择不同处理路径。
         if total_rows == 1 and total_columns == 1:
             only_column = columns[0]
             return f"查询完成，共 1 条结果：{only_column} = {rows[0].get(only_column, '')}"
-
-        # 4. 变量构建：计算并更新 `visible_columns`。
         visible_columns = "、".join(columns[:6])
-        # 5. 条件分支：根据当前状态选择不同处理路径。
         if total_columns > 6:
             visible_columns += " 等"
-        # 6. 返回结果：输出当前函数最终结果。
         return (
             f"查询完成，共返回 {total_rows} 行、{total_columns} 列。"
             f"字段包括：{visible_columns}。"
@@ -87,21 +64,13 @@ class Text2SQLSummaryService:
 
     @staticmethod
     def format_result_text(columns: list[str], rows: list[dict[str, Any]]) -> str:
-        """中文备注：格式化result text相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 条件分支：根据当前状态选择不同处理路径。
+        """把结果集格式化成适合喂给模型的文本。"""
         if not rows:
             return "查询结果为空，没有符合条件的数据。"
-
-        # 2. 变量构建：计算并更新 `header`。
         header = " | ".join(columns)
         lines = [header, "-" * len(header)]
-        # 3. 迭代处理：遍历集合并逐项构建结果。
         for row in rows[:50]:
             lines.append(" | ".join(str(row.get(column, "")) for column in columns))
-        # 4. 条件分支：根据当前状态选择不同处理路径。
         if len(rows) > 50:
             lines.append(f"... 共 {len(rows)} 行，仅展示前 50 行")
-        # 5. 返回结果：输出当前函数最终结果。
         return "\n".join(lines)

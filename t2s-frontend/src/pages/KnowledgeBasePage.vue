@@ -115,11 +115,15 @@ const kbForm = reactive({
   default_chunk_overlap: 120,
 });
 
+// 中文备注：处理setNotice相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function setNotice(message, type = "info") {
   notice.value = message;
   noticeType.value = type;
 }
 
+// 中文备注：处理resetKbForm相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function resetKbForm() {
   kbForm.name = "";
   kbForm.description = "";
@@ -128,6 +132,8 @@ function resetKbForm() {
   kbForm.default_chunk_overlap = 120;
 }
 
+// 中文备注：处理loadKnowledgeBases相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadKnowledgeBases() {
   loading.kb = true;
   try {
@@ -140,6 +146,8 @@ async function loadKnowledgeBases() {
   }
 }
 
+// 中文备注：处理createKb相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function createKb() {
   if (!kbForm.name.trim()) {
     setNotice("请输入知识库名称", "error");
@@ -176,6 +184,8 @@ async function createKb() {
   }
 }
 
+// 中文备注：处理formatTime相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function formatTime(value) {
   if (!value) return "-";
   const date = new Date(value);

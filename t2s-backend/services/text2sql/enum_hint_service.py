@@ -17,7 +17,7 @@ _ENUM_HINT_KEYWORDS = ("status", "state", "type", "level", "gender", "category")
 
 
 class Text2SQLEnumHintService:
-    """封装枚举值探测与提示词增强。"""
+    """从候选表中抽样枚举值，生成补充提示词。"""
 
     def __init__(
         self,

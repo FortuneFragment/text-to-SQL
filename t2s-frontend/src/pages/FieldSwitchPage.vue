@@ -134,13 +134,23 @@ const allFilteredSelected = computed(() => {
   return filteredFields.value.every((item) => checkedFieldNames.value.includes(item.name));
 });
 
+// 中文备注：处理setNotice相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function setNotice(message, type = "info") { notice.value = message; noticeType.value = type; }
+// 中文备注：处理applyFieldResponse相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function applyFieldResponse(data) { fieldData.table_name = data.table_name || ""; fieldData.table_comment = data.table_comment || ""; fieldData.fields = Array.isArray(data.fields) ? data.fields : []; }
+// 中文备注：处理isFieldChecked相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function isFieldChecked(fieldName) { return checkedFieldNames.value.includes(fieldName); }
+// 中文备注：处理toggleFieldCheck相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function toggleFieldCheck(fieldName) {
   if (isFieldChecked(fieldName)) { checkedFieldNames.value = checkedFieldNames.value.filter((name) => name !== fieldName); return; }
   checkedFieldNames.value = [...checkedFieldNames.value, fieldName];
 }
+// 中文备注：处理toggleSelectFilteredFields相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function toggleSelectFilteredFields() {
   if (allFilteredSelected.value) {
     const currentSet = new Set(filteredFields.value.map((item) => item.name));
@@ -151,11 +161,17 @@ function toggleSelectFilteredFields() {
   for (const item of filteredFields.value) merged.add(item.name);
   checkedFieldNames.value = Array.from(merged);
 }
+// 中文备注：处理loadConnectionStatus相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadConnectionStatus() { const data = await apiRequest("/text2sql/connection"); connectionConfigured.value = Boolean(data.configured); }
+// 中文备注：处理loadTableOptions相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadTableOptions() {
   const data = await apiRequest("/text2sql/table/options"); allTableOptions.value = Array.isArray(data.tables) ? data.tables : [];
   if (!selectedTableName.value && allTableOptions.value.length > 0) selectedTableName.value = allTableOptions.value[0].table_name;
 }
+// 中文备注：处理loadFields相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadFields() {
   checkedFieldNames.value = []; fieldData.table_name = ""; fieldData.table_comment = ""; fieldData.fields = []; fieldKeyword.value = "";
   if (!selectedTableName.value) return;
@@ -164,12 +180,18 @@ async function loadFields() {
     applyFieldResponse(data);
   } catch (error) { setNotice(`加载字段失败：${error.message}`, "error"); }
 }
+// 中文备注：处理searchTables相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function searchTables() {
   const options = filteredTableOptions.value;
   if (!selectedTableName.value && options.length > 0) { selectedTableName.value = options[0].table_name; await loadFields(); return; }
   if (selectedTableName.value && !options.some((item) => item.table_name === selectedTableName.value)) { selectedTableName.value = options.length > 0 ? options[0].table_name : ""; await loadFields(); }
 }
+// 中文备注：处理resetTableFilter相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function resetTableFilter() { tableKeyword.value = ""; if (!selectedTableName.value && allTableOptions.value.length > 0) selectedTableName.value = allTableOptions.value[0].table_name; await loadFields(); }
+// 中文备注：处理applyFieldSwitch相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function applyFieldSwitch(fieldNames, enabled) {
   if (!selectedTableName.value) { setNotice("请先选择表", "error"); return; }
   if (!fieldNames.length) { setNotice("请至少勾选一个字段", "error"); return; }
@@ -181,7 +203,11 @@ async function applyFieldSwitch(fieldNames, enabled) {
     applyFieldResponse(data); setNotice(enabled ? "字段批量开启成功" : "字段批量关闭成功", "success");
   } catch (error) { setNotice(`更新失败：${error.message}`, "error"); } finally { loading.mutate = false; }
 }
+// 中文备注：处理switchSingle相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function switchSingle(item, event) { await applyFieldSwitch([item.name], event.target.checked); }
+// 中文备注：处理batchSwitch相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function batchSwitch(enabled) { await applyFieldSwitch(checkedFieldNames.value, enabled); }
 
 onMounted(async () => {

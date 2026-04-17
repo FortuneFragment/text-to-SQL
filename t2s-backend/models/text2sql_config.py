@@ -8,9 +8,7 @@ from models.base import Base
 
 
 class Text2SQLConfig(Base):
-    """中文备注：封装配置管理。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """存储全局默认的表开关与提示词配置。"""
     __tablename__ = "text2sql_config"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

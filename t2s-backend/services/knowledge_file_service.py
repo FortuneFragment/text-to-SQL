@@ -20,6 +20,9 @@ from services.knowledge_service import knowledge_service
 
 
 def _sanitize_filename(value: str) -> str:
+    """中文备注：处理_sanitize_filename相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     text = os.path.basename(str(value or "").strip())
     text = re.sub(r"[\\/:*?\"<>|]", "_", text)
     return text or "unnamed_file"
@@ -27,6 +30,9 @@ def _sanitize_filename(value: str) -> str:
 
 class KnowledgeFileService:
     async def calculate_md5(self, file: UploadFile) -> str:
+        """中文备注：处理calculate_md5相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         digest = hashlib.md5(usedforsecurity=False)
         while chunk := await file.read(8192):
             digest.update(chunk)
@@ -34,6 +40,9 @@ class KnowledgeFileService:
         return digest.hexdigest()
 
     def _resolve_kb(self, db: Session, kb_id: Optional[int]) -> tuple[int, str]:
+        """中文备注：处理_resolve_kb相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         kb_repo = KnowledgeBaseRepository(db)
         if kb_id is None:
             kb = knowledge_service.ensure_default_kb(db)
@@ -57,6 +66,9 @@ class KnowledgeFileService:
         return int(kb.id), str(kb.collection_name)
 
     def _validate_file_meta(self, file: UploadFile) -> str:
+        """中文备注：处理_validate_file_meta相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         filename = str(file.filename or "").strip()
         if not filename:
             raise ValueError("Found empty filename in upload list")
@@ -78,6 +90,9 @@ class KnowledgeFileService:
         custom_chunk_size: int | None = None,
         custom_chunk_overlap: int | None = None,
     ) -> list[dict]:
+        """中文备注：处理batch_upload相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         if not files:
             raise ValueError("Please select at least one file")
 
@@ -170,16 +185,25 @@ class KnowledgeFileService:
         page: int,
         page_size: int,
     ) -> tuple[list[KnowledgeFile], int]:
+        """中文备注：处理list_files相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         rows, total = KnowledgeFileRepository(db).list_by_kb_paginated(kb_id=kb_id, page=page, page_size=page_size)
         return rows, total
 
     @staticmethod
     def build_total_pages(total: int, page_size: int) -> int:
+        """中文备注：处理build_total_pages相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         if total <= 0:
             return 0
         return int(ceil(total / page_size))
 
     def delete_file(self, *, db: Session, file_id: int) -> None:
+        """中文备注：处理delete_file相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         file_repo = KnowledgeFileRepository(db)
         kb_repo = KnowledgeBaseRepository(db)
 
@@ -213,6 +237,9 @@ class KnowledgeFileService:
         custom_chunk_size: int,
         custom_chunk_overlap: int,
     ) -> tuple[KnowledgeFile, str]:
+        """中文备注：处理update_strategy_and_reprocess相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         file_repo = KnowledgeFileRepository(db)
         file_entity = file_repo.get_by_id(file_id)
         if file_entity is None:
@@ -234,6 +261,9 @@ class KnowledgeFileService:
         return updated, task.id
 
     def reprocess_file(self, *, db: Session, file_id: int) -> str:
+        """中文备注：处理reprocess_file相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         file_repo = KnowledgeFileRepository(db)
         file_entity = file_repo.get_by_id(file_id)
         if file_entity is None:

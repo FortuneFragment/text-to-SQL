@@ -149,12 +149,20 @@ const pageButtonItems = computed(() => {
 
 watch([filteredRows, () => tablePage.page_size], () => { if (tablePage.page > totalPages.value) tablePage.page = totalPages.value; jumpPage.value = tablePage.page; }, { immediate: true });
 
+// 中文备注：处理setNotice相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function setNotice(message, type = "info") { notice.value = message; noticeType.value = type; }
+// 中文备注：处理isChecked相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function isChecked(tableName) { return checkedTableNames.value.includes(tableName); }
+// 中文备注：处理toggleCheck相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function toggleCheck(tableName) {
   if (isChecked(tableName)) { checkedTableNames.value = checkedTableNames.value.filter((name) => name !== tableName); return; }
   checkedTableNames.value = [...checkedTableNames.value, tableName];
 }
+// 中文备注：处理toggleSelectCurrentPage相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function toggleSelectCurrentPage() {
   if (allCurrentPageSelected.value) {
     const pageSet = new Set(pageItems.value.map((item) => item.table_name));
@@ -165,13 +173,23 @@ function toggleSelectCurrentPage() {
   for (const item of pageItems.value) merged.add(item.table_name);
   checkedTableNames.value = Array.from(merged);
 }
+// 中文备注：处理buildOrderedSelectedTables相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function buildOrderedSelectedTables(nextSet) { return tableOptions.value.map((item) => item.table_name).filter((tableName) => nextSet.has(tableName)); }
+// 中文备注：处理loadConnectionStatus相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadConnectionStatus() { const data = await apiRequest("/text2sql/connection"); connectionConfigured.value = Boolean(data.configured); }
+// 中文备注：处理loadTableOptions相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadTableOptions() {
   const data = await apiRequest("/text2sql/table/options"); tableOptions.value = Array.isArray(data.tables) ? data.tables : [];
   const tableNameSet = new Set(tableOptions.value.map((item) => item.table_name)); checkedTableNames.value = checkedTableNames.value.filter((name) => tableNameSet.has(name));
 }
+// 中文备注：处理loadConfig相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadConfig() { const data = await apiRequest("/text2sql/table/config"); enabledTableNames.value = Array.isArray(data.selected_tables) ? data.selected_tables : []; }
+// 中文备注：处理saveConfig相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function saveConfig(selectedTables, successMessage) {
   loading.mutate = true;
   try {
@@ -180,21 +198,43 @@ async function saveConfig(selectedTables, successMessage) {
     setNotice(successMessage, "success");
   } catch (error) { setNotice(`保存失败：${error.message}`, "error"); } finally { loading.mutate = false; }
 }
+// 中文备注：处理searchTables相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function searchTables() { tablePage.page = 1; }
+// 中文备注：处理applyQuickTableFilter相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function applyQuickTableFilter() { filters.keyword = filters.quickTable || ""; tablePage.page = 1; }
+// 中文备注：处理changePage相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function changePage(page) { const target = Math.max(1, Math.min(Number(page), totalPages.value)); tablePage.page = target; jumpPage.value = target; }
+// 中文备注：处理changePageSize相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function changePageSize() { tablePage.page = 1; }
+// 中文备注：处理goToJumpPage相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function goToJumpPage() { await changePage(jumpPage.value || 1); }
+// 中文备注：处理resetFilters相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function resetFilters() { filters.keyword = ""; filters.quickTable = ""; tablePage.page = 1; }
+// 中文备注：处理applyTableSwitch相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function applyTableSwitch(tableNames, enabled) {
   if (!tableNames.length) { setNotice("请至少选择一个表", "error"); return; }
   const nextSet = new Set(enabledTableNames.value);
   for (const tableName of tableNames) { if (enabled) nextSet.add(tableName); else nextSet.delete(tableName); }
   await saveConfig(buildOrderedSelectedTables(nextSet), enabled ? "表批量开启成功" : "表批量关闭成功");
 }
+// 中文备注：处理switchSingle相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function switchSingle(item, event) { await applyTableSwitch([item.table_name], event.target.checked); }
+// 中文备注：处理batchSwitchSelected相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function batchSwitchSelected(enabled) { await applyTableSwitch(checkedTableNames.value, enabled); }
+// 中文备注：处理batchSwitchCurrentPage相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function batchSwitchCurrentPage(enabled) { await applyTableSwitch(pageItems.value.map((item) => item.table_name), enabled); }
+// 中文备注：处理batchSwitchByFilter相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function batchSwitchByFilter(enabled) { await applyTableSwitch(filteredRows.value.map((item) => item.table_name), enabled); }
 
 onMounted(async () => {

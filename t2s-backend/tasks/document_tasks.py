@@ -15,6 +15,9 @@ def _ensure_valid_collection_name(
     kb_id: int,
     collection_name: str,
 ) -> str:
+    """中文备注：处理_ensure_valid_collection_name相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     normalized = normalize_collection_name(collection_name)
     if normalized == str(collection_name):
         return normalized
@@ -36,6 +39,9 @@ def _ensure_valid_collection_name(
 
 
 def _run_file_task(file_id: int, *, reprocess: bool) -> dict:
+    """中文备注：处理_run_file_task相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     db = SessionLocal()
     file_repo = KnowledgeFileRepository(db)
     kb_repo = KnowledgeBaseRepository(db)
@@ -91,6 +97,9 @@ def _run_file_task(file_id: int, *, reprocess: bool) -> dict:
 
 @celery_app.task(name="text2sql.tasks.process_document", bind=True, max_retries=3)
 def process_document_task(self, file_id: int) -> dict:
+    """中文备注：处理process_document_task相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     self.update_state(state="STARTED")
     try:
         return _run_file_task(file_id, reprocess=False)
@@ -100,6 +109,9 @@ def process_document_task(self, file_id: int) -> dict:
 
 @celery_app.task(name="text2sql.tasks.reprocess_document", bind=True, max_retries=3)
 def reprocess_document_task(self, file_id: int) -> dict:
+    """中文备注：处理reprocess_document_task相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     self.update_state(state="STARTED")
     try:
         return _run_file_task(file_id, reprocess=True)

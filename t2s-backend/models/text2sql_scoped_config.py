@@ -8,9 +8,8 @@ from models.base import Base
 
 
 class Text2SQLScopedConfig(Base):
-    """中文备注：封装配置管理。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """存储按连接隔离的表开关与提示词配置。"""
+
     __tablename__ = "text2sql_scoped_config"
     __table_args__ = (
         UniqueConstraint("user_id", "connection_key", name="uq_t2s_scoped_config_user_conn"),

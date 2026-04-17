@@ -15,6 +15,9 @@ from schemas.knowledge import KnowledgeBaseCreateRequest, KnowledgeBaseUpdateReq
 class KnowledgeService:
     @staticmethod
     def _dedupe_collection_name(base_name: str, used_names: set[str]) -> str:
+        """中文备注：处理_dedupe_collection_name相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         candidate = str(base_name)
         if candidate not in used_names:
             return candidate
@@ -29,6 +32,9 @@ class KnowledgeService:
             index += 1
 
     def _repair_legacy_collection_names(self, repo: KnowledgeBaseRepository) -> None:
+        """中文备注：处理_repair_legacy_collection_names相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         rows = repo.list_all()
         if not rows:
             return
@@ -48,6 +54,9 @@ class KnowledgeService:
             repo.update(entity)
 
     def _build_default_kb(self) -> KnowledgeBase:
+        """中文备注：处理_build_default_kb相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         return KnowledgeBase(
             name="默认知识库",
             description="系统默认知识库",
@@ -60,6 +69,9 @@ class KnowledgeService:
         )
 
     def ensure_default_kb(self, db: Session) -> KnowledgeBase:
+        """中文备注：处理ensure_default_kb相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         repo = KnowledgeBaseRepository(db)
         current_default = repo.get_default()
         if current_default is not None:
@@ -74,12 +86,18 @@ class KnowledgeService:
         return repo.create(self._build_default_kb())
 
     def list_kbs(self, db: Session) -> list[KnowledgeBase]:
+        """中文备注：处理list_kbs相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         self.ensure_default_kb(db)
         repo = KnowledgeBaseRepository(db)
         self._repair_legacy_collection_names(repo)
         return repo.list_all()
 
     def create_kb(self, db: Session, payload: KnowledgeBaseCreateRequest) -> KnowledgeBase:
+        """中文备注：处理create_kb相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         repo = KnowledgeBaseRepository(db)
         self._repair_legacy_collection_names(repo)
 
@@ -106,6 +124,9 @@ class KnowledgeService:
         return created
 
     def update_kb(self, db: Session, kb_id: int, payload: KnowledgeBaseUpdateRequest) -> KnowledgeBase:
+        """中文备注：处理update_kb相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         repo = KnowledgeBaseRepository(db)
         self._repair_legacy_collection_names(repo)
 
@@ -142,6 +163,9 @@ class KnowledgeService:
         return updated
 
     def delete_kb(self, db: Session, kb_id: int) -> None:
+        """中文备注：处理delete_kb相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         repo = KnowledgeBaseRepository(db)
         entity = repo.get_by_id(kb_id)
         if entity is None:

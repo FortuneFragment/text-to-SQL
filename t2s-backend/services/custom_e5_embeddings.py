@@ -7,7 +7,7 @@ from langchain_core.embeddings import Embeddings
 
 
 class CustomE5Embeddings(Embeddings):
-    """Embedding adapter compatible with OpenAI-style /embeddings endpoint."""
+    """对接兼容 OpenAI Embeddings 协议的向量服务。"""
 
     def __init__(
         self,

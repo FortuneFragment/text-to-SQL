@@ -7,9 +7,8 @@ from models.base import Base
 
 
 class Text2SQLFieldPermission(Base):
-    """中文备注：封装Text2SQLFieldPermission相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """存储字段级查询开关配置。"""
+
     __tablename__ = "text2sql_field_permission"
     __table_args__ = (
         UniqueConstraint(
@@ -23,7 +22,7 @@ class Text2SQLFieldPermission(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(nullable=False, index=True)
-    # utf8mb4 下联合索引字节数容易超限，这里收敛字段长度避免超过 MySQL 3072 字节限制。
+    # utf8mb4 下联合索引容易超长，这里收敛长度以避免超过 MySQL 3072 字节限制。
     connection_key: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     table_name: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     column_name: Mapped[str] = mapped_column(String(64), nullable=False)

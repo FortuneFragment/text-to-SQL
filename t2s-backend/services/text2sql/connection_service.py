@@ -9,16 +9,10 @@ from core.config import settings
 from repositories.text2sql_connection_repo import Text2SQLConnectionRepository
 from schemas.text2sql import Text2SQLConnectionPayload, Text2SQLConnectionResponse
 
-
 class Text2SQLConnectionService:
-    """中文备注：封装连接管理。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """管理数据库连接配置、连通性测试和运行时引擎缓存。"""
     def __init__(self):
-        """中文备注：处理对象生命周期中的 __init__ 特殊逻辑。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `self._cached_engine: Engine | None`。
+        """初始化引擎缓存。"""
         self._cached_engine: Engine | None = None
         self._cached_uri: str = ""
 
@@ -32,10 +26,7 @@ class Text2SQLConnectionService:
         database: str,
         charset: str,
     ) -> str:
-        """中文备注：构建uri相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 返回结果：输出当前函数最终结果。
+        """把连接参数拼成 SQLAlchemy 可用的 MySQL URI。"""
         return (
             f"mysql+pymysql://{username}:{password}"
             f"@{host}:{port}/{database}?charset={charset}"
@@ -43,28 +34,17 @@ class Text2SQLConnectionService:
 
     @staticmethod
     def _strip(value: str | None, fallback: str = "") -> str:
-        """中文备注：清理相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 条件分支：根据当前状态选择不同处理路径。
+        """清理字符串参数，避免空值和多余空白。"""
         if value is None:
             return fallback
-        # 2. 返回结果：输出当前函数最终结果。
         return str(value).strip()
 
     def _from_env(self) -> Text2SQLConnectionResponse:
-        """中文备注：处理env相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `uri`。
+        """从环境变量读取连接配置并转换为响应对象。"""
         uri = self._strip(settings.TEXT2SQL_DB_URI)
-        # 2. 条件分支：根据当前状态选择不同处理路径。
         if not uri:
             return Text2SQLConnectionResponse(configured=False)
-
-        # 3. 变量构建：计算并更新 `parsed`。
         parsed = make_url(uri)
-        # 4. 返回结果：输出当前函数最终结果。
         return Text2SQLConnectionResponse(
             configured=True,
             db_type="mysql",
@@ -77,16 +57,10 @@ class Text2SQLConnectionService:
         )
 
     def get_public_connection(self, db: Session) -> Text2SQLConnectionResponse:
-        """中文备注：获取public connection相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `record`。
+        """返回前端可展示的连接配置（不带密码）。"""
         record = Text2SQLConnectionRepository(db).get_active()
-        # 2. 条件分支：根据当前状态选择不同处理路径。
         if record is None:
             return self._from_env()
-
-        # 3. 返回结果：输出当前函数最终结果。
         return Text2SQLConnectionResponse(
             configured=True,
             db_type="mysql",
@@ -99,12 +73,8 @@ class Text2SQLConnectionService:
         )
 
     def _test_uri(self, uri: str) -> None:
-        """中文备注：测试uri相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 引擎与反射能力初始化：准备数据库连接和元数据提取能力。
+        """用 `SELECT 1` 验证目标 URI 是否可连接。"""
         engine = create_engine(uri, pool_pre_ping=True, pool_recycle=3600, echo=False)
-        # 2. 核心处理：执行当前阶段的业务逻辑。
         try:
             with engine.connect() as conn:
                 conn.execute(text("SELECT 1"))
@@ -138,9 +108,7 @@ class Text2SQLConnectionService:
         *,
         empty_password_error: str,
     ) -> str:
-        """中文备注：解析可复用password相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
+        """在密码留空时复用已有连接密码，避免前端反复输入。"""
         current = Text2SQLConnectionRepository(db).get_active()
         if (
             current is not None
@@ -170,20 +138,14 @@ class Text2SQLConnectionService:
         raise ValueError(empty_password_error)
 
     def test_connection(self, db: Session, payload: Text2SQLConnectionPayload) -> None:
-        """中文备注：测试connection相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `password`。
+        """测试连接参数是否可用。"""
         password = self._strip(payload.password)
-        # 2. 条件分支：根据当前状态选择不同处理路径。
         if not password:
             password = self._resolve_reusable_password(
                 db,
                 payload,
                 empty_password_error="测试连接时 password 不能为空（仅当目标与已保存连接一致时可留空）",
             )
-
-        # 3. 变量构建：计算并更新 `uri`。
         uri = self._build_uri(
             host=self._strip(payload.host),
             port=payload.port,
@@ -195,27 +157,17 @@ class Text2SQLConnectionService:
         self._test_uri(uri)
 
     def save_connection(self, db: Session, payload: Text2SQLConnectionPayload) -> Text2SQLConnectionResponse:
-        """中文备注：保存connection相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 条件分支：根据当前状态选择不同处理路径。
+        """保存连接参数并刷新运行时引擎缓存。"""
         if payload.db_type != "mysql":
             raise ValueError("当前仅支持 mysql")
-
-        # 2. 变量构建：计算并更新 `repo`。
         repo = Text2SQLConnectionRepository(db)
-
-        # 3. 变量构建：计算并更新 `password`。
         password = self._strip(payload.password)
-        # 4. 条件分支：根据当前状态选择不同处理路径。
         if not password:
             password = self._resolve_reusable_password(
                 db,
                 payload,
                 empty_password_error="保存连接时 password 不能为空（修改目标后请重新输入密码）",
             )
-
-        # 6. 变量构建：计算并更新 `uri`。
         uri = self._build_uri(
             host=self._strip(payload.host),
             port=payload.port,
@@ -225,8 +177,6 @@ class Text2SQLConnectionService:
             charset=self._strip(payload.charset, "utf8mb4"),
         )
         self._test_uri(uri)
-
-        # 7. 核心处理：执行当前阶段的业务逻辑。
         repo.upsert(
             db_type="mysql",
             host=self._strip(payload.host),
@@ -236,19 +186,12 @@ class Text2SQLConnectionService:
             database=self._strip(payload.database),
             charset=self._strip(payload.charset, "utf8mb4"),
         )
-
-        # 8. 核心处理：执行当前阶段的业务逻辑。
         self._reset_engine_cache()
-        # 9. 返回结果：输出当前函数最终结果。
         return self.get_public_connection(db)
 
     def _resolve_runtime_uri(self, db: Session) -> str:
-        """中文备注：解析runtime uri相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `record`。
+        """优先取已保存连接，回退到环境变量连接。"""
         record = Text2SQLConnectionRepository(db).get_active()
-        # 2. 条件分支：根据当前状态选择不同处理路径。
         if record is not None:
             return self._build_uri(
                 host=record.host,
@@ -258,34 +201,22 @@ class Text2SQLConnectionService:
                 database=record.database,
                 charset=record.charset,
             )
-        # 3. 返回结果：输出当前函数最终结果。
         return self._strip(settings.TEXT2SQL_DB_URI)
 
     def get_engine(self, db: Session) -> Engine:
-        """中文备注：获取engine相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 目标解析与合法性校验：解析输入范围并拦截非法数据。
+        """返回可复用的 SQLAlchemy Engine。"""
         uri = self._resolve_runtime_uri(db)
-        # 2. 条件分支：根据当前状态选择不同处理路径。
         if not uri:
             raise RuntimeError("数据库连接未配置，请先在前端保存数据库连接")
-
-        # 3. 条件分支：根据当前状态选择不同处理路径。
         if self._cached_engine is None or self._cached_uri != uri:
             if self._cached_engine is not None:
                 self._cached_engine.dispose()
             self._cached_engine = create_engine(uri, pool_pre_ping=True, pool_recycle=3600, echo=False)
             self._cached_uri = uri
-
-        # 4. 返回结果：输出当前函数最终结果。
         return self._cached_engine
 
     def _reset_engine_cache(self) -> None:
-        """中文备注：处理engine cache相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 条件分支：根据当前状态选择不同处理路径。
+        """销毁并清空当前引擎缓存。"""
         if self._cached_engine is not None:
             self._cached_engine.dispose()
         self._cached_engine = None

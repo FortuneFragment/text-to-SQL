@@ -200,11 +200,15 @@ const hasPendingFiles = computed(() =>
   filePage.items.some((item) => Number(item.status) === 0 || Number(item.status) === 1)
 );
 
+// 中文备注：处理setNotice相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function setNotice(message, type = "info") {
   notice.value = message;
   noticeType.value = type;
 }
 
+// 中文备注：处理resetFilePage相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function resetFilePage() {
   filePage.items = [];
   filePage.total = 0;
@@ -212,6 +216,8 @@ function resetFilePage() {
   filePage.page = 1;
 }
 
+// 中文备注：处理ensureStrategyDraft相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function ensureStrategyDraft(items) {
   for (const item of items) {
     const defaultSize = item.custom_chunk_size || selectedKb.value?.default_chunk_size || 800;
@@ -223,6 +229,8 @@ function ensureStrategyDraft(items) {
   }
 }
 
+// 中文备注：处理clearFileInput相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function clearFileInput() {
   selectedFiles.value = [];
   if (fileInputRef.value) {
@@ -230,6 +238,8 @@ function clearFileInput() {
   }
 }
 
+// 中文备注：处理loadKnowledgeBase相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadKnowledgeBase() {
   loading.kb = true;
   try {
@@ -265,6 +275,8 @@ async function loadKnowledgeBase() {
   }
 }
 
+// 中文备注：处理loadFiles相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadFiles() {
   if (!selectedKb.value?.id) return;
 
@@ -284,11 +296,15 @@ async function loadFiles() {
   }
 }
 
+// 中文备注：处理onSelectFiles相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function onSelectFiles(event) {
   const files = Array.from(event?.target?.files || []);
   selectedFiles.value = files;
 }
 
+// 中文备注：处理submitUpload相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function submitUpload() {
   if (!selectedKb.value?.id) {
     setNotice("当前知识库无效，请返回列表重新进入", "error");
@@ -342,11 +358,15 @@ async function submitUpload() {
   }
 }
 
+// 中文备注：处理changePage相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function changePage(page) {
   filePage.page = Math.max(1, Number(page || 1));
   await loadFiles();
 }
 
+// 中文备注：处理removeFile相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function removeFile(item) {
   const confirmed = window.confirm(`确认删除文件 ${item.file_name} 吗？该操作会同步删除向量数据。`);
   if (!confirmed) return;
@@ -363,6 +383,8 @@ async function removeFile(item) {
   }
 }
 
+// 中文备注：处理reprocess相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function reprocess(item) {
   loading.action = true;
   try {
@@ -376,6 +398,8 @@ async function reprocess(item) {
   }
 }
 
+// 中文备注：处理saveStrategyAndReprocess相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function saveStrategyAndReprocess(item) {
   const draft = strategyDraft[item.id];
   if (!draft) return;
@@ -403,6 +427,8 @@ async function saveStrategyAndReprocess(item) {
   }
 }
 
+// 中文备注：处理previewChunks相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function previewChunks(item) {
   chunkPreview.visible = true;
   chunkPreview.fileId = item.id;
@@ -411,6 +437,8 @@ async function previewChunks(item) {
   await loadChunkPage();
 }
 
+// 中文备注：处理loadChunkPage相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadChunkPage() {
   if (!chunkPreview.fileId) return;
 
@@ -429,11 +457,15 @@ async function loadChunkPage() {
   }
 }
 
+// 中文备注：处理changeChunkPage相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function changeChunkPage(page) {
   chunkPreview.page = Math.max(1, Number(page || 1));
   await loadChunkPage();
 }
 
+// 中文备注：处理formatBytes相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function formatBytes(size) {
   const value = Number(size || 0);
   if (value < 1024) return `${value} B`;
@@ -442,6 +474,8 @@ function formatBytes(size) {
   return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+// 中文备注：处理statusText相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function statusText(status) {
   const num = Number(status);
   if (num === 0) return "待处理";
@@ -451,6 +485,8 @@ function statusText(status) {
   return "未知";
 }
 
+// 中文备注：处理statusClass相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function statusClass(status) {
   const num = Number(status);
   if (num === 0) return "pending";
@@ -460,6 +496,8 @@ function statusClass(status) {
   return "unknown";
 }
 
+// 中文备注：处理stopPolling相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function stopPolling() {
   if (pollTimer) {
     clearInterval(pollTimer);
@@ -467,6 +505,8 @@ function stopPolling() {
   }
 }
 
+// 中文备注：处理startPolling相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function startPolling() {
   stopPolling();
   pollTimer = setInterval(() => {
@@ -476,6 +516,8 @@ function startPolling() {
   }, 5000);
 }
 
+// 中文备注：处理initPage相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function initPage() {
   clearFileInput();
   chunkPreview.visible = false;

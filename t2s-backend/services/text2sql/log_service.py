@@ -8,16 +8,10 @@ from sqlalchemy.orm import Session
 from repositories.text2sql_query_log_repo import Text2SQLQueryLogRepository
 from schemas.text2sql import Text2SQLQueryLogItem
 
-
 class Text2SQLLogService:
-    """中文备注：封装服务层能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """封装查询日志写入与读取。"""
     def _serialize_selected_tables(self, runtime_config: dict[str, Any]) -> str:
-        """中文备注：处理selected tables相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 返回结果：输出当前函数最终结果。
+        """把运行时表范围序列化为 JSON 字符串。"""
         return json.dumps(runtime_config.get("selected_tables", []), ensure_ascii=False)
 
     def create_success_log(
@@ -33,10 +27,7 @@ class Text2SQLLogService:
         duration_ms: int,
         repaired: bool,
     ) -> None:
-        """中文备注：创建success log相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 核心处理：执行当前阶段的业务逻辑。
+        """写入一次成功查询的日志。"""
         Text2SQLQueryLogRepository(db).create(
             user_id=user_id,
             question=question,
@@ -63,10 +54,7 @@ class Text2SQLLogService:
         duration_ms: int,
         repaired: bool,
     ) -> None:
-        """中文备注：创建failed log相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 核心处理：执行当前阶段的业务逻辑。
+        """写入一次失败查询的日志。"""
         Text2SQLQueryLogRepository(db).create(
             user_id=user_id,
             question=question,
@@ -81,11 +69,7 @@ class Text2SQLLogService:
         )
 
     def list_logs(self, db: Session, user_id: int, limit: int = 20) -> list[Text2SQLQueryLogItem]:
-        """中文备注：列出logs相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `logs`。
+        """读取最近的查询日志列表。"""
         logs = Text2SQLQueryLogRepository(db).list_latest(user_id=user_id, limit=limit)
-        # 2. 目标解析与合法性校验：解析输入范围并拦截非法数据。
         return [Text2SQLQueryLogItem.model_validate(item) for item in logs]
 

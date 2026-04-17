@@ -8,9 +8,15 @@ from core.milvus_name import is_valid_collection_name
 
 class MilvusRepository:
     def __init__(self) -> None:
+        """中文备注：处理__init__相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         self.alias = "default"
 
     def _connect(self) -> None:
+        """中文备注：处理_connect相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         connections.connect(
             alias=self.alias,
             host=settings.MILVUS_HOST,
@@ -19,6 +25,9 @@ class MilvusRepository:
 
     @staticmethod
     def _build_schema(vector_dim: int) -> CollectionSchema:
+        """中文备注：处理_build_schema相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         return CollectionSchema(
             fields=[
                 FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
@@ -37,6 +46,9 @@ class MilvusRepository:
         collection_name: str,
         vector_dim: int,
     ) -> Collection:
+        """中文备注：处理ensure_collection相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         name = str(collection_name or "").strip()
         if not is_valid_collection_name(name):
             raise ValueError(
@@ -75,6 +87,9 @@ class MilvusRepository:
         collection_name: str,
         vector_dim: int,
     ) -> None:
+        """中文备注：处理insert_chunks相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         if not rows:
             return
         collection = self.ensure_collection(collection_name=collection_name, vector_dim=vector_dim)
@@ -82,11 +97,17 @@ class MilvusRepository:
         collection.flush()
 
     def delete_chunks_by_file_id(self, file_id: int, *, collection_name: str, vector_dim: int) -> None:
+        """中文备注：处理delete_chunks_by_file_id相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         collection = self.ensure_collection(collection_name=collection_name, vector_dim=vector_dim)
         collection.delete(expr=f"file_id == {int(file_id)}")
         collection.flush()
 
     def delete_chunks_by_kb_id(self, kb_id: int, *, collection_name: str, vector_dim: int) -> None:
+        """中文备注：处理delete_chunks_by_kb_id相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         collection = self.ensure_collection(collection_name=collection_name, vector_dim=vector_dim)
         collection.delete(expr=f"kb_id == {int(kb_id)}")
         collection.flush()
@@ -100,6 +121,9 @@ class MilvusRepository:
         query_vector: list[float],
         top_k: int = 5,
     ) -> list[dict]:
+        """中文备注：处理search_chunks相关业务数据并返回结果。
+        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+        """
         collection = self.ensure_collection(collection_name=collection_name, vector_dim=vector_dim)
         result = collection.search(
             data=[query_vector],

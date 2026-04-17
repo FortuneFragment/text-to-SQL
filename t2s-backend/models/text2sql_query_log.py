@@ -7,9 +7,7 @@ from models.base import Base
 
 
 class Text2SQLQueryLog(Base):
-    """中文备注：封装Text2SQLQueryLog相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """记录每次 Text2SQL 请求的 SQL 与执行结果。"""
     __tablename__ = "text2sql_query_log"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

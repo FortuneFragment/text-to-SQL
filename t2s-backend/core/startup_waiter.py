@@ -11,6 +11,9 @@ from core.config import settings
 
 
 def _retry_until_ready(name: str, checker: Callable[[], None], interval_seconds: int) -> None:
+    """中文备注：处理_retry_until_ready相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     while True:
         try:
             checker()
@@ -21,11 +24,17 @@ def _retry_until_ready(name: str, checker: Callable[[], None], interval_seconds:
 
 
 def _check_mysql(engine: Engine) -> None:
+    """中文备注：处理_check_mysql相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
 
 
 def _read_redis_line(sock: socket.socket) -> bytes:
+    """中文备注：处理_read_redis_line相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     data = b""
     while not data.endswith(b"\r\n"):
         chunk = sock.recv(1)
@@ -36,6 +45,9 @@ def _read_redis_line(sock: socket.socket) -> bytes:
 
 
 def _send_redis_command(sock: socket.socket, *parts: str) -> bytes:
+    """中文备注：处理_send_redis_command相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     payload = f"*{len(parts)}\r\n".encode("utf-8")
     for part in parts:
         binary = part.encode("utf-8")
@@ -45,6 +57,9 @@ def _send_redis_command(sock: socket.socket, *parts: str) -> bytes:
 
 
 def _check_redis(host: str, port: int, password: str) -> None:
+    """中文备注：处理_check_redis相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     with socket.create_connection((host, port), timeout=3) as sock:
         if password:
             auth_reply = _send_redis_command(sock, "AUTH", password)
@@ -56,6 +71,9 @@ def _check_redis(host: str, port: int, password: str) -> None:
 
 
 def _parse_host_port(endpoint: str, default_port: int) -> tuple[str, int]:
+    """中文备注：处理_parse_host_port相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     raw = str(endpoint or "").strip()
     if not raw:
         raise ValueError("endpoint is empty")
@@ -66,11 +84,17 @@ def _parse_host_port(endpoint: str, default_port: int) -> tuple[str, int]:
 
 
 def _check_tcp(host: str, port: int, timeout: int = 3) -> None:
+    """中文备注：处理_check_tcp相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     with socket.create_connection((host, port), timeout=timeout):
         return
 
 
 def wait_for_docker_middlewares(system_engine: Engine) -> list[str]:
+    """中文备注：处理wait_for_docker_middlewares相关业务数据并返回结果。
+    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+    """
     if not settings.STARTUP_WAIT_ENABLED:
         return []
 

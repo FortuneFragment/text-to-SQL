@@ -7,9 +7,7 @@ from models.base import Base
 
 
 class User(Base):
-    """中文备注：封装User相关业务能力。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """用户账户模型，保存登录与权限相关信息。"""
     __tablename__ = "user"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)

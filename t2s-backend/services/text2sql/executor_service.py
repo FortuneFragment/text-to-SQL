@@ -9,32 +9,21 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 
-
 class Text2SQLExecutorService:
-    """中文备注：封装SQL 执行。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """执行 SQL 并把结果转换成前端可消费的数据结构。"""
     def __init__(
         self,
         engine_provider: Callable[[Session], Engine],
         ensure_limit: Callable[[str], str],
     ):
-        """中文备注：处理对象生命周期中的 __init__ 特殊逻辑。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `self._engine_provider`。
+        """注入数据库引擎提供器和 SQL 限流器。"""
         self._engine_provider = engine_provider
         self._ensure_limit = ensure_limit
 
     def execute_sql(self, db: Session, sql: str) -> tuple[list[str], list[dict[str, Any]]]:
-        """中文备注：执行sql相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `engine`。
+        """执行 SQL 并返回列名与行数据。"""
         engine = self._engine_provider(db)
         sql = self._ensure_limit(sql)
-
-        # 2. 核心处理：执行当前阶段的业务逻辑。
         with engine.connect() as conn:
             timeout_ms = settings.TEXT2SQL_EXEC_TIMEOUT_SECONDS * 1000
             try:

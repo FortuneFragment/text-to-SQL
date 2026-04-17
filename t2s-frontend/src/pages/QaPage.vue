@@ -45,8 +45,11 @@
             {{ debugResult.validation_passed ? "校验通过" : "校验失败" }}
           </span>
         </div>
-        <pre class="sql-code"><code>{{ debugResult.sql }}</code></pre>
+        <pre class="sql-code debug-sql-code"><code>{{ debugResult.sql }}</code></pre>
         <p v-if="debugResult.validation_message" class="debug-msg">{{ debugResult.validation_message }}</p>
+        <p v-if="Array.isArray(debugResult.route_tables) && debugResult.route_tables.length" class="route-msg">
+          路由（{{ debugResult.route_mode || "single" }}）: {{ debugResult.route_tables.join("、") }}
+        </p>
       </div>
 
       <div class="history-section">
@@ -124,16 +127,30 @@ const question = ref(""); const history = ref([]); const logs = ref([]);
 const debugResult = ref(null); const connectionConfigured = ref(false);
 const notice = ref(""); const noticeType = ref("info");
 
+// 中文备注：处理setNotice相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function setNotice(message, type = "info") { notice.value = message; noticeType.value = type; }
+// 中文备注：处理buildFieldInferenceMap相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function buildFieldInferenceMap(fieldInference) {
   const map = {};
   for (const item of fieldInference || []) { if (!item || !item.column) continue; map[item.column] = item; }
   return map;
 }
+// 中文备注：处理getFieldInference相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function getFieldInference(item, column) { return item?.field_inference_map?.[column] || null; }
+// 中文备注：处理getFieldInferenceTip相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function getFieldInferenceTip(item, column) { const inference = getFieldInference(item, column); return inference?.reason || ""; }
+// 中文备注：处理formatConfidence相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function formatConfidence(value) { const num = Number(value); if (!Number.isFinite(num)) return "-"; return `${Math.round(Math.max(0, Math.min(1, num)) * 100)}%`; }
+// 中文备注：处理loadConnectionStatus相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadConnectionStatus() { try { const data = await apiRequest("/text2sql/connection"); connectionConfigured.value = Boolean(data.configured); } catch { connectionConfigured.value = false; } }
+// 中文备注：处理askQuestion相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function askQuestion() {
   if (!question.value.trim()) { setNotice("请先输入问题", "error"); return; }
   loading.query = true;
@@ -144,6 +161,8 @@ async function askQuestion() {
     question.value = ""; debugResult.value = null; await loadLogs(); setNotice("查询成功", "success");
   } catch (error) { setNotice(`查询失败：${error.message}`, "error"); } finally { loading.query = false; }
 }
+// 中文备注：处理debugGenerate相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function debugGenerate() {
   if (!question.value.trim()) { setNotice("请先输入问题", "error"); return; }
   loading.query = true;
@@ -152,7 +171,11 @@ async function debugGenerate() {
     setNotice("SQL 生成完成", "success");
   } catch (error) { setNotice(`调试失败：${error.message}`, "error"); } finally { loading.query = false; }
 }
+// 中文备注：处理loadLogs相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadLogs() { loading.logs = true; try { logs.value = await apiRequest("/text2sql/qa/logs?limit=20"); } catch { logs.value = []; } finally { loading.logs = false; } }
+// 中文备注：处理formatTime相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function formatTime(value) { return value ? new Date(value).toLocaleString() : "-"; }
 
 onMounted(async () => { await Promise.all([loadConnectionStatus(), loadLogs()]); });
@@ -225,7 +248,16 @@ button:disabled { opacity: 0.6; cursor: not-allowed; }
 .status-badge { font-size: 12px; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
 .status-badge.ok { background: #d1fae5; color: #065f46; }
 .status-badge.warn { background: #fee2e2; color: #991b1b; }
+.debug-sql-code {
+  background: #0f172a;
+  color: #f8fafc;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+  opacity: 1;
+}
+.debug-sql-code code { color: inherit; opacity: 1; }
 .debug-msg { color: #ef4444; font-size: 13px; margin-top: 8px; }
+.route-msg { color: #334155; font-size: 14px; margin-top: 8px; }
 
 /* Logs Sidebar */
 .log-list { display: flex; flex-direction: column; gap: 12px; }

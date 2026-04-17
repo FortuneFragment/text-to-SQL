@@ -20,32 +20,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.on_event("startup")
 def on_startup() -> None:
-    """中文备注：处理startup相关业务数据并返回结果。
-    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-    """
-    # 1. 变量构建：计算并更新 `connected_middlewares`。
+    """在服务启动时检查依赖并初始化数据库表。"""
     connected_middlewares = wait_for_docker_middlewares(engine)
     Base.metadata.create_all(bind=engine)
-    # 2. 条件分支：根据当前状态选择不同处理路径。
     if connected_middlewares:
         print("[startup] 已连接中间件: " + ", ".join(connected_middlewares))
 
-
 @app.get("/health")
 def health() -> dict:
-    """中文备注：处理相关业务数据并返回结果。
-    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-    """
-    # 1. 返回结果：输出当前函数最终结果。
+    """返回服务健康状态。"""
     return {
         "ok": True,
         "project": settings.PROJECT_NAME,
         "version": settings.VERSION,
     }
-
 
 app.include_router(text2sql_router, prefix=settings.API_V1_STR)
 

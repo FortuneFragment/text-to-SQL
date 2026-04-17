@@ -18,7 +18,7 @@ class EmbeddingProvider(Protocol):
 
 
 class DeterministicEmbeddings:
-    """Fallback embedding provider when remote embedding service is not configured."""
+    """离线兜底向量器，用确定性哈希生成可复现向量。"""
 
     def __init__(self, dim: int) -> None:
         self.dim = int(dim)

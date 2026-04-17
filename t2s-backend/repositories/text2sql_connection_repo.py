@@ -3,23 +3,14 @@ from sqlalchemy.orm import Session
 
 from models.text2sql_connection import Text2SQLConnection
 
-
 class Text2SQLConnectionRepository:
-    """中文备注：封装连接管理。
-    类职责：聚合同类能力并提供统一调用入口。
-    """
+    """负责 `text2sql_connection` 表的读写。"""
     def __init__(self, db: Session):
-        """中文备注：处理对象生命周期中的 __init__ 特殊逻辑。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `self.db`。
+        """注入数据库会话。"""
         self.db = db
 
     def get_active(self) -> Text2SQLConnection | None:
-        """中文备注：获取active相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 返回结果：输出当前函数最终结果。
+        """返回最近一次保存的连接配置。"""
         return self.db.query(Text2SQLConnection).order_by(desc(Text2SQLConnection.updated_at)).first()
 
     def upsert(
@@ -33,12 +24,8 @@ class Text2SQLConnectionRepository:
         database: str,
         charset: str,
     ) -> Text2SQLConnection:
-        """中文备注：处理相关业务数据并返回结果。
-        执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-        """
-        # 1. 变量构建：计算并更新 `record`。
+        """创建或更新当前生效的连接配置。"""
         record = self.get_active()
-        # 2. 条件分支：根据当前状态选择不同处理路径。
         if record is None:
             record = Text2SQLConnection(
                 db_type=db_type,
@@ -58,10 +45,7 @@ class Text2SQLConnectionRepository:
             record.password = password
             record.database = database
             record.charset = charset
-
-        # 3. 外部调用：执行数据库或接口调用并接收返回值。
         self.db.commit()
         self.db.refresh(record)
-        # 4. 返回结果：输出当前函数最终结果。
         return record
 

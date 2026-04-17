@@ -69,8 +69,12 @@ const connectionConfigured = ref(false);
 const notice = ref("");
 const noticeType = ref("info");
 
+// 中文备注：处理setNotice相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function setNotice(message, type = "info") { notice.value = message; noticeType.value = type; }
 
+// 中文备注：处理loadConnection相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function loadConnection() {
   const data = await apiRequest("/text2sql/connection");
   connectionConfigured.value = Boolean(data.configured);
@@ -84,6 +88,8 @@ async function loadConnection() {
   connection.password = "";
 }
 
+// 中文备注：处理testConnection相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function testConnection() {
   loading.connection = true;
   try {
@@ -93,6 +99,8 @@ async function testConnection() {
   finally { loading.connection = false; }
 }
 
+// 中文备注：处理saveConnection相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 async function saveConnection() {
   loading.connection = true;
   try {
