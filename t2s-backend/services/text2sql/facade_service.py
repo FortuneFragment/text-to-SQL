@@ -514,7 +514,7 @@ class Text2SQLFacadeService:
                 "clarify_question": "\u8def\u7531\u4fe1\u53f7\u8f83\u5f31\uff0c\u8bf7\u8865\u5145\u66f4\u5177\u4f53\u7684\u4e1a\u52a1\u5bf9\u8c61\u6216\u7b5b\u9009\u6761\u4ef6",
             }
         ranked = sorted(final_scores.keys(), key=lambda t: (-final_scores.get(t, 0.0), t))
-        # 扩大 LLM 的候选池：既然向量和 token 的“死板”容易引发同义词鸿沟（如“班车”找不到“校车”），
+        # 扩大 LLM 的候选池：既然向量和 token 的“死板”容易引发同义词鸿沟，
         # 在这阶段我们彻底放权，把有效候选池拉大到 150 张表（基本覆盖全库）。
         # 这就相当于让大模型直接作为“第一关”，利用大模型自身庞大的常识来识别表意映射。
         config_top_k = int(settings.TABLE_ROUTE_MAX_CANDIDATES)
