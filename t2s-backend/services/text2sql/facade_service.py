@@ -394,7 +394,7 @@ class Text2SQLFacadeService:
 
         注意：字段名限制为最多 20 个，过多字段会导致 2-gram 打分时产生
         大量偶然命中，让不相关的大表得分虚高。字段名的主要作用是补充
-        表名和注释无法覆盖的业务关键词（如 club_name, grade 等）。
+        表名和注释无法覆盖的业务关键词。
         """
         profiles: dict[str, str] = {}
         for option in table_options:
