@@ -21,10 +21,12 @@ _REPAIR_SQL_PROMPT = ChatPromptTemplate.from_messages([
             "- 若错误是「语法错误」：修复 SQL 语法，保持原始查询意图。\n\n"
             "硬性规则：\n"
             "1. 只能输出一条 SELECT 语句。\n"
-            "2. 仅允许单表查询，禁止 JOIN、UNION 和多语句。\n"
-            "3. 表名和字段必须来自 schema_json。\n"
+            "2. 表名和字段必须来自 schema_json。\n"
+            "3. 严禁使用 UNION 和多语句。\n"
             "4. 注意字段的数据类型和注释信息。\n"
             "5. 仅输出 SQL 本身，不要解释，不要 markdown。\n\n"
+            "关系约束模式：\n{relation_mode_instructions}\n\n"
+            "可用关系白名单（仅在多表模式下可用）：\n{relation_hints_text}\n\n"
             "允许查询的表：\n{allowed_tables_text}\n\n"
             "真实数据库结构（JSON）：\n{schema_json}\n\n"
             "额外业务约束：\n{prompt_hint}\n"
@@ -58,6 +60,41 @@ class Text2SQLRepairService:
             return "（未指定；可从 schema_json 中选择一张表）"
         return "\n".join(f"- {table_name}" for table_name in selected_tables)
 
+    @staticmethod
+    def _build_relation_prompt_context(relation_hints: list[dict]) -> tuple[str, str]:
+        if not relation_hints:
+            return (
+                "当前为单表模式：你必须只使用一张表，禁止使用 JOIN。",
+                "（无）",
+            )
+        lines: list[str] = []
+        for relation in relation_hints:
+            source_table = str(relation.get("source_table") or "").strip()
+            target_table = str(relation.get("target_table") or "").strip()
+            source_columns = [str(item).strip() for item in (relation.get("source_columns") or []) if str(item).strip()]
+            target_columns = [str(item).strip() for item in (relation.get("target_columns") or []) if str(item).strip()]
+            if not source_table or not target_table or not source_columns or len(source_columns) != len(target_columns):
+                continue
+            pairs = [f"{source_table}.{left} = {target_table}.{right}" for left, right in zip(source_columns, target_columns)]
+            relation_type = str(relation.get("relation_type") or "").strip()
+            description = str(relation.get("description") or "").strip()
+            suffix_parts = []
+            if relation_type:
+                suffix_parts.append(f"类型: {relation_type}")
+            if description:
+                suffix_parts.append(f"说明: {description}")
+            suffix = f"（{'；'.join(suffix_parts)}）" if suffix_parts else ""
+            lines.append(f"- {' AND '.join(pairs)}{suffix}")
+        if not lines:
+            return (
+                "当前为单表模式：你必须只使用一张表，禁止使用 JOIN。",
+                "（无）",
+            )
+        return (
+            "当前为多表按需模式：如需 JOIN，仅可使用白名单关系，禁止猜测未提供的关系。",
+            "\n".join(lines),
+        )
+
     def repair_sql(
         self,
         *,
@@ -72,6 +109,7 @@ class Text2SQLRepairService:
         if model is None:
             return self._ensure_limit(failed_sql)
         selected_tables = runtime_config.get("selected_tables") or []
+        relation_hints = runtime_config.get("relation_hints") or []
         queryable_columns_map = runtime_config.get("queryable_columns_map")
         schema_json = self._schema_service.build_live_schema_json(
             db,
@@ -79,6 +117,7 @@ class Text2SQLRepairService:
             queryable_columns_map=queryable_columns_map,
         )
         allowed_tables_text = self._build_allowed_tables_text(selected_tables)
+        relation_mode_instructions, relation_hints_text = self._build_relation_prompt_context(relation_hints)
         prompt_hint = runtime_config.get("prompt_hint") or "（无）"
         chain = _REPAIR_SQL_PROMPT | model | StrOutputParser()
         repaired_sql = chain.invoke(
@@ -87,6 +126,8 @@ class Text2SQLRepairService:
                 "failed_sql": failed_sql,
                 "error_message": error_message,
                 "allowed_tables_text": allowed_tables_text,
+                "relation_mode_instructions": relation_mode_instructions,
+                "relation_hints_text": relation_hints_text,
                 "schema_json": schema_json,
                 "prompt_hint": prompt_hint,
             }

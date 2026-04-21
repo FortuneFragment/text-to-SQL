@@ -20,6 +20,7 @@ class Text2SQLQueryLog(Base):
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     selected_tables: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    relation_guard_used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     row_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     repaired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

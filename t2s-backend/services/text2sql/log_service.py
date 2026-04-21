@@ -14,6 +14,10 @@ class Text2SQLLogService:
         """把运行时表范围序列化为 JSON 字符串。"""
         return json.dumps(runtime_config.get("selected_tables", []), ensure_ascii=False)
 
+    @staticmethod
+    def _extract_relation_guard_used(runtime_config: dict[str, Any]) -> bool:
+        return bool(runtime_config.get("relation_guard_used", False))
+
     def create_success_log(
         self,
         *,
@@ -36,6 +40,7 @@ class Text2SQLLogService:
             status="success",
             error_message=None,
             selected_tables=self._serialize_selected_tables(runtime_config),
+            relation_guard_used=self._extract_relation_guard_used(runtime_config),
             row_count=row_count,
             duration_ms=duration_ms,
             repaired=repaired,
@@ -63,6 +68,7 @@ class Text2SQLLogService:
             status="failed",
             error_message=error_message,
             selected_tables=self._serialize_selected_tables(runtime_config),
+            relation_guard_used=self._extract_relation_guard_used(runtime_config),
             row_count=None,
             duration_ms=duration_ms,
             repaired=repaired,

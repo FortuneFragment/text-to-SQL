@@ -56,12 +56,22 @@ class GuardEnumHintService:
         raise AssertionError("enum hint should not be called when disabled")
 
 
+class DummyRelationService:
+    def get_active_relations_by_tables(self, db, table_names):
+        return []
+
+    @staticmethod
+    def relation_hint_lines(relation_hints):
+        return []
+
+
 def _build_facade() -> Text2SQLFacadeService:
     return Text2SQLFacadeService(
         connection_service=DummyConnectionService(),
         schema_service=DummySchemaService(),
         config_service=DummyConfigService(),
         field_permission_service=DummyFieldPermissionService(),
+        relation_service=DummyRelationService(),
         log_service=DummyLogService(),
     )
 
@@ -93,7 +103,7 @@ def test_run_pipeline_passes_enhanced_prompt_to_generate_and_repair(monkeypatch)
 
     repair_calls = {"count": 0}
 
-    def fake_validate_sql(sql, allowed_tables, table_columns_map, max_tables):
+    def fake_validate_sql(sql, allowed_tables, table_columns_map, max_tables, relation_hints):
         repair_calls["count"] += 1
         if repair_calls["count"] == 1:
             return False, "mock validation error"
@@ -148,7 +158,7 @@ def test_run_pipeline_keeps_original_prompt_when_enum_hint_disabled(monkeypatch)
     monkeypatch.setattr(
         facade.validator_service,
         "validate_sql",
-        lambda sql, allowed_tables, table_columns_map, max_tables: (True, ""),
+        lambda sql, allowed_tables, table_columns_map, max_tables, relation_hints: (True, ""),
     )
 
     facade._run_pipeline(

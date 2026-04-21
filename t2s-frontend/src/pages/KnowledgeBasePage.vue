@@ -82,7 +82,10 @@
                 </td>
                 <td>{{ formatTime(item.created_at) }}</td>
                 <td>
-                  <RouterLink :to="`/knowledge/${item.id}`" class="btn-primary enter-link">进入知识库</RouterLink>
+                  <div class="row-actions">
+                    <RouterLink :to="`/knowledge/${item.id}`" class="btn-primary enter-link">进入知识库</RouterLink>
+                    <button class="btn-danger" :disabled="loading.kb" @click="deleteKb(item)">删除</button>
+                  </div>
                 </td>
               </tr>
               <tr v-if="kbList.length === 0">
@@ -179,6 +182,30 @@ async function createKb() {
     setNotice(`知识库创建成功，ID：${created.id}`, "success");
   } catch (error) {
     setNotice(`创建知识库失败：${error.message}`, "error");
+  } finally {
+    loading.kb = false;
+  }
+}
+
+// 中文备注：处理deleteKb相关业务数据并返回结果。
+// 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
+async function deleteKb(item) {
+  const kbName = String(item?.name || "");
+  const kbId = Number(item?.id || 0);
+  if (!kbId) {
+    setNotice("知识库 ID 无效，无法删除", "error");
+    return;
+  }
+  const confirmed = window.confirm(`确认删除知识库「${kbName || kbId}」吗？`);
+  if (!confirmed) return;
+
+  loading.kb = true;
+  try {
+    await apiRequest(`/text2sql/kb/${kbId}`, { method: "DELETE" });
+    await loadKnowledgeBases();
+    setNotice("知识库删除成功", "success");
+  } catch (error) {
+    setNotice(`删除知识库失败：${error.message}`, "error");
   } finally {
     loading.kb = false;
   }
@@ -333,6 +360,15 @@ button:disabled {
   background: var(--accent-hover);
 }
 
+.btn-danger {
+  background: #ef4444;
+  color: #fff;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #dc2626;
+}
+
 .btn-ghost {
   border: 1px solid var(--line);
   background: transparent;
@@ -441,6 +477,12 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   text-decoration: none;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .empty-cell {

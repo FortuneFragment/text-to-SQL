@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
 from typing import Any
@@ -160,6 +160,24 @@ class Text2SQLSchemaService:
             for table_name in table_names
         ]
 
+    def list_table_options_by_names(self, db: Session, table_names: list[str]) -> list[dict[str, str]]:
+        """按指定表名返回表名与表注释列表。"""
+        if not table_names:
+            return []
+        engine = self.connection_service.get_engine(db)
+        inspector = inspect(engine)
+        all_tables = inspector.get_table_names()
+        resolved_tables, missing_tables = self._resolve_target_tables(all_tables, table_names)
+        if missing_tables:
+            raise ValueError(f"以下表在数据库中不存在: {', '.join(missing_tables)}")
+        return [
+            {
+                "table_name": table_name,
+                "table_comment": self._extract_table_comment(inspector, table_name),
+            }
+            for table_name in resolved_tables
+        ]
+
     def get_table_detail(
         self,
         db: Session,
@@ -178,7 +196,9 @@ class Text2SQLSchemaService:
 
     def list_table_names(self, db: Session) -> list[str]:
         """返回当前数据库中的所有表名。"""
-        return [item["table_name"] for item in self.list_table_options(db)]
+        engine = self.connection_service.get_engine(db)
+        inspector = inspect(engine)
+        return sorted(inspector.get_table_names())
 
     def validate_selected_tables(self, db: Session, table_names: list[str] | None) -> tuple[list[str], list[str]]:
         """校验表名列表，返回可用表与不存在表。"""

@@ -67,6 +67,7 @@ class Text2SQLFewShotService:
         db: Session,
         question: str,
         *,
+        table_names: list[str] | None = None,
         table_name: str | None = None,
     ) -> str:
         question_text = str(question or "").strip()
@@ -84,8 +85,29 @@ class Text2SQLFewShotService:
         if not logs:
             return "（暂无历史参考）"
 
-        table_key = self._normalize_identifier(table_name)
-        if table_key:
+        normalized_table_names = {
+            self._normalize_identifier(item)
+            for item in (table_names or [])
+            if self._normalize_identifier(item)
+        }
+        if not normalized_table_names and table_name:
+            normalized_single = self._normalize_identifier(table_name)
+            if normalized_single:
+                normalized_table_names.add(normalized_single)
+
+        table_overlap_scores: dict[int, int] = {}
+        if normalized_table_names:
+            filtered_logs: list[Text2SQLQueryLog] = []
+            for log in logs:
+                selected_tables = self._parse_selected_tables(getattr(log, "selected_tables", None))
+                overlap = len(selected_tables.intersection(normalized_table_names))
+                if overlap <= 0:
+                    continue
+                filtered_logs.append(log)
+                table_overlap_scores[int(getattr(log, "id", 0) or 0)] = overlap
+            logs = filtered_logs
+        elif table_name:
+            table_key = self._normalize_identifier(table_name)
             logs = [
                 log
                 for log in logs
@@ -115,6 +137,7 @@ class Text2SQLFewShotService:
 
         scored_logs.sort(
             key=lambda item: (
+                -int(table_overlap_scores.get(int(getattr(item[1], "id", 0) or 0), 0)),
                 -float(item[0]),
                 -int(getattr(item[1], "id", 0)),
             )

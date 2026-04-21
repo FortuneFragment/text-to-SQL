@@ -3,12 +3,13 @@
     <header class="hero fade-in">
       <div class="hero-content">
         <h1>Text2SQL <span class="badge">Pro</span></h1>
-        <p>数据库连接、表开关、字段开关与知识问答管理终端</p>
+        <p>数据库连接、表/字段开关、关系配置与知识问答管理终端</p>
       </div>
       <nav class="top-nav">
         <RouterLink to="/connection" class="nav-link" active-class="nav-link-active">外部数据库连接</RouterLink>
         <RouterLink to="/table" class="nav-link" active-class="nav-link-active">表开关</RouterLink>
         <RouterLink to="/field" class="nav-link" active-class="nav-link-active">字段开关</RouterLink>
+        <RouterLink to="/relation" class="nav-link" active-class="nav-link-active">表关系配置</RouterLink>
         <RouterLink to="/knowledge" class="nav-link" active-class="nav-link-active">知识库上传</RouterLink>
         <RouterLink to="/qa" class="nav-link" active-class="nav-link-active">知识问答</RouterLink>
       </nav>

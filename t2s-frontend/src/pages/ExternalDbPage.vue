@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <section class="panel">
     <div class="panel-header">
       <h2>外部数据库连接</h2>
@@ -120,13 +120,14 @@ onMounted(async () => {
 <style scoped>
 .panel {
   background: var(--bg-panel);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255,255,255,0.6);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-xl);
   padding: 32px;
   max-width: 800px;
   margin: 0 auto;
+  transition: all 0.3s ease;
 }
 
 .panel-header {
@@ -159,11 +160,11 @@ label { display: flex; flex-direction: column; gap: 8px; font-size: 14px; font-w
 label span { color: var(--text-muted); }
 
 input {
-  background: #f8fafc; border: 1px solid var(--line);
-  border-radius: 10px; padding: 12px 16px; color: var(--text-main);
-  box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 12px 16px; color: var(--text-main);
+  box-shadow: var(--shadow-sm);
 }
-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); background: #ffffff; }
+input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-light); background: var(--bg-card); }
 
 .row-actions { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-top: 8px; }
 

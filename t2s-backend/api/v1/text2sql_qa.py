@@ -53,6 +53,14 @@ def debug_generate(payload: Text2SQLQueryRequest, db: Session = Depends(get_db))
         validation_message=str(result.get("validation_message") or ""),
         route_mode=str(result.get("mode") or ""),
         route_tables=[str(item) for item in (result.get("candidate_tables") or []) if str(item).strip()],
+        route_pool_tables=[str(item) for item in (result.get("route_pool_tables") or []) if str(item).strip()],
+        route_scores={
+            str(name): float(score)
+            for name, score in dict(result.get("route_scores") or {}).items()
+            if str(name).strip()
+        },
+        relation_hints=[str(item) for item in (result.get("relation_hints") or []) if str(item).strip()],
+        relation_guard_used=bool(result.get("relation_guard_used", False)),
     )
 
 @router.get("/logs", response_model=list[Text2SQLQueryLogItem])

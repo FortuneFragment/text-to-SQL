@@ -5,6 +5,7 @@ from models.text2sql_scoped_config import Text2SQLScopedConfig
 from models.text2sql_query_log import Text2SQLQueryLog
 from models.text2sql_connection import Text2SQLConnection
 from models.text2sql_field_permission import Text2SQLFieldPermission
+from models.text2sql_table_relation import Text2SQLTableRelation
 from models.knowledge_base import KnowledgeBase
 from models.knowledge_file import KnowledgeFile
 from models.document_chunk import DocumentChunk
@@ -17,6 +18,7 @@ __all__ = [
     "Text2SQLQueryLog",
     "Text2SQLConnection",
     "Text2SQLFieldPermission",
+    "Text2SQLTableRelation",
     "KnowledgeBase",
     "KnowledgeFile",
     "DocumentChunk",

@@ -18,14 +18,16 @@ _GENERATE_SQL_PROMPT = ChatPromptTemplate.from_messages([
             "你是学校数据查询助手，负责将自然语言问题转换为 SQL 查询。\n\n"
             "硬性规则：\n"
             "1. 只能输出一条 SELECT 语句。\n"
-            "2. 仅允许单表查询，禁止 JOIN、UNION 和多语句。\n"
-            "3. 表名和字段必须来自 schema_json，禁止臆造。\n"
+            "2. 表名和字段必须来自 schema_json，禁止臆造。\n"
+            "3. 严禁使用 UNION 和多语句。\n"
             "4. 当问题信息不足时，优先忽略无法确认的条件，不要猜字段。\n"
             "5. 明细查询建议补 LIMIT；统计聚合查询（如 COUNT/SUM/AVG）可不加 LIMIT。\n"
             "6. 仅输出 SQL 本身，不要解释，不要 markdown。\n"
             "7. 若用户问“有哪些/列表/明细”，优先返回可读的关键字段，不要只返回单个编码类字段。\n"
             "8. 字段注释（comment）描述了字段业务含义，请优先参考注释选择字段和条件值。\n"
             "9. 注意字段类型：TINYINT 条件值用数字，VARCHAR 条件值用字符串。\n\n"
+            "关系约束模式：\n{relation_mode_instructions}\n\n"
+            "可用关系白名单（仅在多表模式下可用）：\n{relation_hints_text}\n\n"
             "允许查询的表：\n{allowed_tables_text}\n\n"
             "真实数据库结构（JSON）：\n{schema_json}\n\n"
             "额外业务约束：\n{prompt_hint}\n\n"
@@ -53,6 +55,44 @@ class Text2SQLGeneratorService:
             return "（未指定；可从 schema_json 中选择一张表）"
         return "\n".join(f"- {table_name}" for table_name in selected_tables)
 
+    @staticmethod
+    def _build_relation_prompt_context(relation_hints: list[dict]) -> tuple[str, str]:
+        if not relation_hints:
+            return (
+                "当前为单表模式：你必须只使用一张表，禁止使用 JOIN。",
+                "（无）",
+            )
+        lines: list[str] = []
+        for relation in relation_hints:
+            source_table = str(relation.get("source_table") or "").strip()
+            target_table = str(relation.get("target_table") or "").strip()
+            source_columns = [str(item).strip() for item in (relation.get("source_columns") or []) if str(item).strip()]
+            target_columns = [str(item).strip() for item in (relation.get("target_columns") or []) if str(item).strip()]
+            if not source_table or not target_table or not source_columns or len(source_columns) != len(target_columns):
+                continue
+            pairs = [f"{source_table}.{left} = {target_table}.{right}" for left, right in zip(source_columns, target_columns)]
+            relation_type = str(relation.get("relation_type") or "").strip()
+            description = str(relation.get("description") or "").strip()
+            suffix_parts = []
+            if relation_type:
+                suffix_parts.append(f"类型: {relation_type}")
+            if description:
+                suffix_parts.append(f"说明: {description}")
+            suffix = f"（{'；'.join(suffix_parts)}）" if suffix_parts else ""
+            lines.append(f"- {' AND '.join(pairs)}{suffix}")
+        if not lines:
+            return (
+                "当前为单表模式：你必须只使用一张表，禁止使用 JOIN。",
+                "（无）",
+            )
+        return (
+            (
+                "当前为多表按需模式：若单表可回答，优先单表。"
+                "如需 JOIN，仅可使用上面白名单中的字段对应关系，禁止猜测未提供关系。"
+            ),
+            "\n".join(lines),
+        )
+
     def generate_sql(
         self,
         *,
@@ -64,6 +104,7 @@ class Text2SQLGeneratorService:
         selected_tables = runtime_config.get("selected_tables") or []
         prompt_hint = runtime_config.get("prompt_hint") or "（无）"
         few_shot_examples = runtime_config.get("few_shot_examples") or "（暂无历史参考）"
+        relation_hints = runtime_config.get("relation_hints") or []
         queryable_columns_map = runtime_config.get("queryable_columns_map")
         if not selected_tables:
             raise ValueError("未选择可查询的表，无法生成 SQL")
@@ -76,12 +117,15 @@ class Text2SQLGeneratorService:
             selected_tables,
             queryable_columns_map=queryable_columns_map,
         )
+        relation_mode_instructions, relation_hints_text = self._build_relation_prompt_context(relation_hints)
         chain = _GENERATE_SQL_PROMPT | model | StrOutputParser()
         raw_sql = chain.invoke(
             {
                 "question": question,
                 "schema_json": schema_json,
                 "allowed_tables_text": self._build_allowed_tables_text(selected_tables),
+                "relation_mode_instructions": relation_mode_instructions,
+                "relation_hints_text": relation_hints_text,
                 "prompt_hint": prompt_hint,
                 "few_shot_examples": few_shot_examples,
             }

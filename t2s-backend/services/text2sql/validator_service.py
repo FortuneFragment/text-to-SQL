@@ -9,8 +9,10 @@ _DANGEROUS_KEYWORDS = re.compile(
     re.IGNORECASE,
 )
 
+
 class Text2SQLValidatorService:
     """负责 SQL 安全与语义校验。"""
+
     @staticmethod
     def normalize_identifier(value: str | None) -> str:
         """标准化标识符，便于大小写无关比较。"""
@@ -123,11 +125,142 @@ class Text2SQLValidatorService:
         return True, ""
 
     @staticmethod
+    def _split_and_conditions(expression: exp.Expression | None) -> list[exp.Expression]:
+        if expression is None:
+            return []
+        if isinstance(expression, exp.And):
+            return (
+                Text2SQLValidatorService._split_and_conditions(expression.this)
+                + Text2SQLValidatorService._split_and_conditions(expression.expression)
+            )
+        return [expression]
+
+    @staticmethod
+    def _resolve_column_endpoint(
+        column: exp.Expression | None,
+        alias_map: dict[str, str],
+    ) -> tuple[str, str] | None:
+        if not isinstance(column, exp.Column):
+            return None
+        column_name = Text2SQLValidatorService.normalize_identifier(str(column.name or ""))
+        table_alias = Text2SQLValidatorService.normalize_identifier(str(column.table or ""))
+        if not column_name or not table_alias:
+            return None
+        real_table = alias_map.get(table_alias)
+        if not real_table:
+            return None
+        return real_table, column_name
+
+    @staticmethod
+    def _canonical_condition_pair(
+        left_endpoint: tuple[str, str],
+        right_endpoint: tuple[str, str],
+    ) -> tuple[str, str, str, str]:
+        left_table, left_column = left_endpoint
+        right_table, right_column = right_endpoint
+        left_tuple = (left_table, left_column)
+        right_tuple = (right_table, right_column)
+        if left_tuple <= right_tuple:
+            return left_table, left_column, right_table, right_column
+        return right_table, right_column, left_table, left_column
+
+    @classmethod
+    def _build_allowed_join_signatures(
+        cls,
+        relation_hints: list[dict] | None,
+    ) -> dict[frozenset[str], set[frozenset[tuple[str, str, str, str]]]]:
+        allowed: dict[frozenset[str], set[frozenset[tuple[str, str, str, str]]]] = {}
+        for relation in relation_hints or []:
+            source_table = cls.normalize_table_identifier(str(relation.get("source_table") or ""))
+            target_table = cls.normalize_table_identifier(str(relation.get("target_table") or ""))
+            source_columns = [
+                cls.normalize_identifier(str(item))
+                for item in (relation.get("source_columns") or [])
+                if cls.normalize_identifier(str(item))
+            ]
+            target_columns = [
+                cls.normalize_identifier(str(item))
+                for item in (relation.get("target_columns") or [])
+                if cls.normalize_identifier(str(item))
+            ]
+            if not source_table or not target_table or not source_columns or len(source_columns) != len(target_columns):
+                continue
+
+            pairs = {
+                cls._canonical_condition_pair(
+                    (source_table, source_column),
+                    (target_table, target_column),
+                )
+                for source_column, target_column in zip(source_columns, target_columns)
+            }
+            if not pairs:
+                continue
+
+            tables_key = frozenset({source_table, target_table})
+            allowed.setdefault(tables_key, set()).add(frozenset(pairs))
+        return allowed
+
+    @classmethod
+    def validate_join_constraints(
+        cls,
+        tree: exp.Expression,
+        relation_hints: list[dict] | None,
+    ) -> tuple[bool, str]:
+        allowed_signatures = cls._build_allowed_join_signatures(relation_hints)
+        if not allowed_signatures:
+            return False, "当前未配置可用关系白名单，不允许多表 JOIN"
+
+        alias_map = cls.build_alias_map(tree)
+        normalized_alias_map = {
+            cls.normalize_identifier(alias): cls.normalize_table_identifier(table)
+            for alias, table in alias_map.items()
+            if cls.normalize_identifier(alias) and cls.normalize_table_identifier(table)
+        }
+
+        join_nodes = list(tree.find_all(exp.Join))
+        if not join_nodes:
+            return False, "多表查询必须使用 JOIN 且提供 ON 条件"
+
+        for join_node in join_nodes:
+            on_expr = join_node.args.get("on")
+            if on_expr is None:
+                return False, "JOIN 必须包含 ON 条件，且只能使用等值连接"
+
+            conditions = cls._split_and_conditions(on_expr)
+            if not conditions:
+                return False, "JOIN ON 条件不能为空"
+
+            condition_pairs: set[tuple[str, str, str, str]] = set()
+            joined_tables: set[str] = set()
+            for condition in conditions:
+                if not isinstance(condition, exp.EQ):
+                    return False, "JOIN ON 仅允许使用等值连接（=）和 AND 组合"
+                left_endpoint = cls._resolve_column_endpoint(condition.this, normalized_alias_map)
+                right_endpoint = cls._resolve_column_endpoint(condition.expression, normalized_alias_map)
+                if left_endpoint is None or right_endpoint is None:
+                    return False, "JOIN ON 仅允许列与列比较，且必须显式带表别名"
+
+                canonical_pair = cls._canonical_condition_pair(left_endpoint, right_endpoint)
+                condition_pairs.add(canonical_pair)
+                joined_tables.add(canonical_pair[0])
+                joined_tables.add(canonical_pair[2])
+
+            if len(joined_tables) != 2:
+                return False, "JOIN ON 必须只连接两张表"
+
+            signature = frozenset(condition_pairs)
+            tables_key = frozenset(joined_tables)
+            if signature not in allowed_signatures.get(tables_key, set()):
+                return False, "JOIN 条件未命中关系白名单"
+        return True, ""
+
+    @staticmethod
     def validate_sql(
         sql: str,
         allowed_tables: list[str] | None = None,
         table_columns_map: dict[str, set[str]] | None = None,
         max_tables: int | None = None,
+        relation_hints: list[dict] | None = None,
     ) -> tuple[bool, str]:
         """校验 SQL 结构安全性、表权限和字段合法性。"""
         normalized = sql.strip()
@@ -149,10 +282,20 @@ class Text2SQLValidatorService:
         referenced_tables = Text2SQLValidatorService.extract_tables_from_ast(tree)
         if not referenced_tables:
             return False, "SQL 必须至少引用一张真实表"
+
+        max_allowed_tables = max(1, int(max_tables or 1))
+        if len(referenced_tables) > max_allowed_tables:
+            return False, f"SQL 引用了过多表，最多允许 {max_allowed_tables} 张表"
         if len(referenced_tables) > 1:
-            return False, "当前系统仅支持单表查询，不允许多表或 JOIN SQL"
-        if max_tables is not None and len(referenced_tables) > max(1, int(max_tables)):
-            return False, f"SQL 引用了过多表，最多允许 {int(max_tables)} 张表"
+            joins = list(tree.find_all(exp.Join))
+            if not joins:
+                return False, "多表查询必须使用显式 JOIN 语法"
+            if not relation_hints:
+                return False, "当前系统仅支持单表查询，不允许未授权的多表或 JOIN SQL"
+            joins_valid, join_error = Text2SQLValidatorService.validate_join_constraints(tree, relation_hints)
+            if not joins_valid:
+                return False, join_error
+
         if allowed_tables:
             allowed_table_set = {
                 Text2SQLValidatorService.normalize_table_identifier(item)
@@ -166,6 +309,7 @@ class Text2SQLValidatorService:
             ]
             if illegal_tables:
                 return False, f"SQL 使用了未授权的表: {', '.join(illegal_tables)}"
+
         if table_columns_map is not None:
             normalized_map = Text2SQLValidatorService.normalize_table_columns_map(table_columns_map)
             missing_tables = [

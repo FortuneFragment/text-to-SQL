@@ -115,6 +115,60 @@ class UpdateText2SQLTableFieldsRequest(BaseModel):
     fields: list[UpdateText2SQLTableFieldItem] = Field(default_factory=list, min_length=1)
 
 
+class Text2SQLRelationUpsertRequest(BaseModel):
+    """新增/更新表关系的请求体（支持复合键）。"""
+
+    source_table: str = Field(min_length=1, max_length=64)
+    source_columns: list[str] = Field(default_factory=list, min_length=1)
+    target_table: str = Field(min_length=1, max_length=64)
+    target_columns: list[str] = Field(default_factory=list, min_length=1)
+    relation_type: str = Field(default="N:1", max_length=16)
+    description: str = ""
+    is_active: bool = True
+
+
+class CreateText2SQLRelationRequest(Text2SQLRelationUpsertRequest):
+    """新增关系请求。"""
+
+
+class UpdateText2SQLRelationRequest(Text2SQLRelationUpsertRequest):
+    """更新关系请求。"""
+
+
+class Text2SQLRelationItem(BaseModel):
+    """关系配置条目。"""
+
+    id: int
+    source_table: str
+    source_columns: list[str] = Field(default_factory=list)
+    target_table: str
+    target_columns: list[str] = Field(default_factory=list)
+    relation_type: str = ""
+    description: str = ""
+    is_active: bool = True
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class Text2SQLRelationListResponse(BaseModel):
+    """关系列表响应。"""
+
+    items: list[Text2SQLRelationItem] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    page_size: int = 20
+
+
+class Text2SQLRelationTableColumnsResponse(BaseModel):
+    """关系配置时读取表字段列表的响应。"""
+
+    table_name: str
+    table_comment: str = ""
+    columns: list[ColumnInfo] = Field(default_factory=list)
+
+
 class Text2SQLQueryRequest(BaseModel):
     """自然语言问答请求体。"""
 
@@ -154,6 +208,10 @@ class Text2SQLDebugGenerateResponse(BaseModel):
     validation_message: str = ""
     route_mode: str = ""
     route_tables: list[str] = Field(default_factory=list)
+    route_pool_tables: list[str] = Field(default_factory=list)
+    route_scores: dict[str, float] = Field(default_factory=dict)
+    relation_hints: list[str] = Field(default_factory=list)
+    relation_guard_used: bool = False
 
 
 class Text2SQLQueryLogItem(BaseModel):
@@ -165,6 +223,7 @@ class Text2SQLQueryLogItem(BaseModel):
     final_sql: str | None = None
     status: str
     error_message: str | None = None
+    relation_guard_used: bool = False
     row_count: int | None = None
     duration_ms: int | None = None
     repaired: bool

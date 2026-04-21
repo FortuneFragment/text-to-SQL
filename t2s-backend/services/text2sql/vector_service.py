@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 from collections import defaultdict
 
@@ -17,7 +18,7 @@ _TABLE_TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9_]+|[\u4e00-\u9fff]+")
 
 
 class Text2SQLVectorService:
-    """提供表级向量检索打分，用于路由候选表。"""
+    """Provide table-level vector retrieval scores for routing."""
 
     def __init__(self, kb_id: int | None = 0):
         # 0/None 表示自动选择知识库。
@@ -78,6 +79,18 @@ class Text2SQLVectorService:
         if normalized_table:
             meaningful_terms.add(normalized_table)
         return meaningful_terms
+
+    @staticmethod
+    def _build_non_informative_terms(term_index: dict[str, set[str]], table_count: int) -> set[str]:
+        """Filter out overly-shared tokens to reduce cross-table noise."""
+        if table_count <= 1:
+            return set()
+        shared_threshold = max(2, int(math.ceil(float(table_count) * 0.35)))
+        return {
+            term
+            for term, linked_tables in term_index.items()
+            if len(linked_tables) >= shared_threshold
+        }
 
     @staticmethod
     def _safe_int(value: object) -> int | None:
@@ -211,6 +224,15 @@ class Text2SQLVectorService:
 
         if not table_lookup:
             return {}
+        non_informative_terms = self._build_non_informative_terms(term_index, len(table_lookup))
+        table_terms_for_match: dict[str, set[str]] = {}
+        for normalized_table, terms in table_terms.items():
+            filtered_terms = {
+                term
+                for term in terms
+                if term == normalized_table or term not in non_informative_terms
+            }
+            table_terms_for_match[normalized_table] = filtered_terms or terms
 
         file_ids: set[int] = set()
         for hit in raw_hits:
@@ -242,30 +264,34 @@ class Text2SQLVectorService:
             text_terms = self._tokenize_terms(source_text, max_terms=512)
             if not text_terms:
                 continue
+            informative_text_terms = {
+                term
+                for term in text_terms
+                if term not in non_informative_terms
+            }
+            if not informative_text_terms:
+                continue
 
             matched_tables: set[str] = set()
-            for term in text_terms:
+            for term in informative_text_terms:
                 matched_tables.update(term_index.get(term, set()))
             if not matched_tables:
                 continue
-
-            # 如果一个段落命中了过多的候选表，说明它是缺乏区分度的全局性文本（如完整的表清单、整体设计文档）。
-            # 这种文本如果打高分，会导致所有表的得分丧失区分度，让不相关的表因为名字靠前而挤占 Top-K。
-            # 因此，当命中的表超过 3 个时，进行大幅降权惩罚。
+            # 一个片段同时命中过多表时，通常缺少区分度（如全量表清单/总览文档），应降权。
             diversity_penalty = 1.0
             if len(matched_tables) > 3:
                 diversity_penalty = max(0.01, 3.0 / float(len(matched_tables)))
 
             for normalized_table in matched_tables:
-                terms = table_terms.get(normalized_table, set())
+                terms = table_terms_for_match.get(normalized_table, set())
                 if not terms:
                     continue
 
-                overlap = len(terms.intersection(text_terms))
+                overlap = len(terms.intersection(informative_text_terms))
                 if overlap <= 0:
                     continue
 
-                if normalized_table in text_terms:
+                if normalized_table in informative_text_terms:
                     factor = 1.0
                 elif overlap >= 4:
                     factor = 0.85
@@ -298,3 +324,4 @@ class Text2SQLVectorService:
             blended_scores[table_name] = round(max(0.0, min(1.0, blended)), 6)
 
         return blended_scores
+

@@ -6,6 +6,7 @@ import FieldSwitchPage from "../pages/FieldSwitchPage.vue";
 import QaPage from "../pages/QaPage.vue";
 import KnowledgeBasePage from "../pages/KnowledgeBasePage.vue";
 import KnowledgeBaseDetailPage from "../pages/KnowledgeBaseDetailPage.vue";
+import RelationPage from "../pages/RelationPage.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -32,6 +33,11 @@ const router = createRouter({
       path: "/field",
       name: "field",
       component: FieldSwitchPage,
+    },
+    {
+      path: "/relation",
+      name: "relation",
+      component: RelationPage,
     },
     {
       path: "/qa",
