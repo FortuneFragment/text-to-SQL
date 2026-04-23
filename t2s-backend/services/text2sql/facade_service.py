@@ -44,15 +44,35 @@ _TABLE_SELECTION_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
-            "你是数据表选择器。根据用户的问题，从下面的候选表中选出最相关的一张表。\n"
-            "判断依据：优先看表注释是否与问题的业务场景匹配，其次看字段名是否包含问题需要的数据。\n"
-            "只输出表名本身，不要带引号、不要解释。\n\n"
-            "候选表：\n{candidates_info}\n"
+            "You are a database table selector.\n"
+            "Choose exactly one primary table from the candidates.\n"
+            "Prefer business-semantic match first, then field-level match.\n"
+            "Output only the table name, without markdown or explanation.\n\n"
+            "Candidate tables:\n{candidates_info}\n"
         ),
     ),
-    ("human", "用户问题：{question}"),
+    ("human", "Question: {question}"),
 ])
 
+_ROUTER_TABLE_SELECTION_PROMPT = ChatPromptTemplate.from_messages([
+    (
+        "system",
+        (
+            "You are a Text2SQL Router Agent.\n"
+            "Task: choose the minimum required table set for answering the question.\n\n"
+            "Rules:\n"
+            "1. You may only select from candidate tables below.\n"
+            "2. For JOIN, only use relations listed in the whitelist.\n"
+            "3. If one table is enough, return one table.\n"
+            "4. If multiple tables are required, include necessary bridge tables.\n"
+            "5. Never invent table names or relations.\n"
+            "6. Output strict JSON only: {{\"tables\": [\"table_a\", \"table_b\"]}}.\n\n"
+            "Candidate tables with columns:\n{candidates_info}\n\n"
+            "JOIN whitelist:\n{relation_hints_text}\n"
+        ),
+    ),
+    ("human", "Question: {question}"),
+])
 
 @dataclass
 class SQLAttemptResult:
@@ -247,17 +267,19 @@ class Text2SQLFacadeService:
         )
         route_candidates = self._normalize_table_list(route.get("candidates") or [])
         route_pool_candidates = self._normalize_table_list(route.get("route_pool_tables") or route_candidates)
+        route_relation_hints = list(route.get("relation_hints") or [])
         if not route_candidates:
             raise ValueError(
-                str(route.get("clarify_question") or "\u5f53\u524d\u95ee\u9898\u672a\u5339\u914d\u5230\u53ef\u67e5\u8be2\u7684\u6570\u636e\u8868")
+                str(route.get("clarify_question") or "Current question does not match any queryable table")
             )
 
         max_join_tables = max(1, int(settings.TEXT2SQL_MAX_JOIN_TABLES or 1))
         multi_table_enabled = bool(settings.TEXT2SQL_MULTI_TABLE_ENABLED)
         effective_candidates = route_candidates[: max_join_tables if multi_table_enabled else 1]
-        relation_hints: list[dict] = []
+
+        relation_hints = route_relation_hints if len(effective_candidates) > 1 else []
         if multi_table_enabled:
-            if len(effective_candidates) > 1:
+            if len(effective_candidates) > 1 and not relation_hints:
                 relation_hints = self.relation_service.get_active_relations_by_tables(db, effective_candidates)
                 if not relation_hints and len(route_pool_candidates) > len(effective_candidates):
                     seed_table = effective_candidates[0]
@@ -274,7 +296,6 @@ class Text2SQLFacadeService:
                             effective_candidates,
                         )
             elif len(effective_candidates) == 1 and max_join_tables > 1:
-                # 路由仅命中一张表时，尝试从“同配置范围内的关系白名单”补齐可联查表。
                 seed_table = effective_candidates[0]
                 expanded_scope = self._normalize_table_list(
                     self.field_permission_service.get_queryable_table_names(
@@ -297,8 +318,9 @@ class Text2SQLFacadeService:
                         )
             if len(effective_candidates) > 1 and not relation_hints:
                 effective_candidates = [effective_candidates[0]]
+                relation_hints = []
 
-        relation_guard_used = bool(relation_hints)
+        relation_guard_used = bool(relation_hints) and len(effective_candidates) > 1
         candidate_columns_map = self.field_permission_service.get_queryable_columns_map(
             db,
             effective_candidates,
@@ -311,7 +333,7 @@ class Text2SQLFacadeService:
                 queryable_columns_map=candidate_columns_map,
                 base_prompt_hint=prompt_hint,
             )
-        few_shot_examples = "（暂无历史参考）"
+        few_shot_examples = "(no historical examples)"
         try:
             few_shot_examples = self.few_shot_service.search_similar_examples(
                 db,
@@ -333,16 +355,20 @@ class Text2SQLFacadeService:
             max_tables=max_join_tables if relation_guard_used else 1,
         )
         if not result.is_valid:
-            raise ValueError(f"SQL \u6821\u9a8c\u5931\u8d25: {result.validation_message}")
+            raise ValueError(f"SQL validation failed: {result.validation_message}")
+
         effective_mode = str(route.get("mode") or "single")
         if relation_guard_used and len(effective_candidates) > 1 and effective_mode == "single":
             effective_mode = "multi_relation_fallback"
+        elif relation_guard_used and len(effective_candidates) > 1:
+            effective_mode = "multi"
         if not relation_guard_used and len(route_candidates) > 1 and len(effective_candidates) == 1:
             effective_mode = "single_fallback"
+
         payload = {
             "mode": effective_mode,
             "candidate_tables": effective_candidates,
-            "route_pool_tables": route.get("route_pool_tables") or route_candidates,
+            "route_pool_tables": route_pool_candidates,
             "route_scores": route["scores"],
             "selected_tables": effective_candidates,
             "generated_sql": result.generated_sql,
@@ -458,7 +484,7 @@ class Text2SQLFacadeService:
                 if compact:
                     token_set.add(compact)
                 if len(compact) >= 2:
-                    # 中文查询常是连续句子，补�?2-gram 提升“注释词/业务词”命中率�?
+                    # For Chinese text, add 2-gram tokens to improve matching.
                     max_grams = min(len(compact) - 1, 64)
                     for index in range(max_grams):
                         token_set.add(compact[index : index + 2])
@@ -480,12 +506,12 @@ class Text2SQLFacadeService:
         table_options: list[dict[str, str]],
         table_columns_map: dict[str, set[str]] | None = None,
     ) -> dict[str, str]:
-        """构建用于 token 打分的表 profile 文本�?
+        """Build table profile text used for keyword/profile scoring."""
 
-        注意：字段名限制为最�?20 个，过多字段会导�?2-gram 打分时产�?
-        大量偶然命中，让不相关的大表得分虚高。字段名的主要作用是补充
-        表名和注释无法覆盖的业务关键词�?
-        """
+        # Keep only a limited number of columns to reduce noisy matches from huge tables.
+        # Column names here are supplementary signals beyond table name/comment semantics.
+
+
         profiles: dict[str, str] = {}
         for option in table_options:
             table_name = str(option.get("table_name") or "").strip()
@@ -499,7 +525,7 @@ class Text2SQLFacadeService:
                     if str(column).strip()
                 ]
             )
-            # 只保留前 20 个字段名参与打分，避免大�?token 噪声
+            # Keep first 20 columns to avoid profile token noise.
             if len(columns) > 20:
                 columns = columns[:20]
             columns_text = " ".join(columns)
@@ -522,13 +548,140 @@ class Text2SQLFacadeService:
             scores[table_name] = score
         return scores
 
+    @staticmethod
+    def _expand_pool_by_relation_graph(seed_tables: list[str], relation_hints: list[dict] | None) -> list[str]:
+        """Expand seed tables by one-hop neighbors from relation graph."""
+        expanded = [str(name).strip() for name in (seed_tables or []) if str(name).strip()]
+        seen = {table_name.lower() for table_name in expanded}
+        for seed_table in list(expanded):
+            for related_table in Text2SQLFacadeService._collect_related_tables(seed_table, relation_hints):
+                key = related_table.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                expanded.append(related_table)
+        return expanded
+
+    @staticmethod
+    def _build_router_output_fallback(candidates: list[str], max_tables: int) -> list[str]:
+        if not candidates:
+            return []
+        safe_max_tables = max(1, int(max_tables or 1))
+        return candidates[:safe_max_tables]
+
+    @staticmethod
+    def _normalize_router_selected_tables(raw_output: str, candidates: list[str]) -> list[str]:
+        cleaned = str(raw_output or "").strip()
+        if not cleaned:
+            return []
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```\w*\n?", "", cleaned)
+            cleaned = re.sub(r"\n?```$", "", cleaned)
+            cleaned = cleaned.strip()
+
+        parsed_tables: list[str] = []
+        try:
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, dict):
+                raw_tables = parsed.get("tables")
+                if isinstance(raw_tables, list):
+                    parsed_tables = [str(item).strip() for item in raw_tables if str(item).strip()]
+            elif isinstance(parsed, list):
+                parsed_tables = [str(item).strip() for item in parsed if str(item).strip()]
+        except Exception:  # noqa: BLE001
+            bracket_match = re.search(r"\[(.*?)\]", cleaned, flags=re.DOTALL)
+            if bracket_match:
+                raw_items = [item.strip() for item in bracket_match.group(1).split(",")]
+                parsed_tables = [item.strip("`\"' ") for item in raw_items if item.strip()]
+            else:
+                raw_items = [item.strip() for item in cleaned.split(",")]
+                parsed_tables = [item.strip("`\"' ") for item in raw_items if item.strip()]
+
+        if not parsed_tables:
+            return []
+
+        lookup = {str(name).strip().lower(): str(name).strip() for name in (candidates or []) if str(name).strip()}
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for raw_name in parsed_tables:
+            candidate = lookup.get(str(raw_name).strip().lower())
+            if not candidate:
+                normalized_raw = Text2SQLValidatorService.normalize_table_identifier(raw_name)
+                candidate = lookup.get(normalized_raw)
+            if not candidate:
+                continue
+            key = candidate.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(candidate)
+        return normalized
+
+    def _llm_route_tables(
+        self,
+        question: str,
+        candidates: list[str],
+        *,
+        table_comment_map: dict[str, str],
+        table_columns_map: dict[str, set[str]] | None = None,
+        relation_hints: list[dict] | None = None,
+        max_tables: int = 1,
+    ) -> list[str]:
+        if not candidates:
+            return []
+
+        safe_max_tables = max(1, int(max_tables or 1))
+        fallback_tables = self._build_router_output_fallback(candidates, safe_max_tables)
+        if len(candidates) <= 1 or safe_max_tables <= 1:
+            return fallback_tables
+
+        model = self._get_model()
+        if model is None:
+            return fallback_tables
+
+        info_lines: list[str] = []
+        for table_name in candidates:
+            comment = table_comment_map.get(table_name, "").strip()
+            label = f"{table_name} ({comment})" if comment else table_name
+            columns = sorted(
+                str(c).strip()
+                for c in (table_columns_map or {}).get(table_name, set())
+                if str(c).strip()
+            )
+            if len(columns) > 20:
+                columns = columns[:20] + [f"... total {len(columns)} columns"]
+            columns_text = ", ".join(columns) if columns else "(no queryable columns)"
+            info_lines.append(f"- {label}\n  columns: {columns_text}")
+
+        relation_hint_lines = self.relation_service.relation_hint_lines(relation_hints or [])
+        relation_hints_text = "\n".join(relation_hint_lines) if relation_hint_lines else "(none)"
+        chain = _ROUTER_TABLE_SELECTION_PROMPT | model | StrOutputParser()
+        try:
+            raw_output = str(
+                chain.invoke(
+                    {
+                        "question": question,
+                        "candidates_info": "\n".join(info_lines),
+                        "relation_hints_text": relation_hints_text,
+                    }
+                )
+            ).strip()
+        except Exception:  # noqa: BLE001
+            _console_logger.exception("router table selection LLM invoke failed")
+            return fallback_tables
+
+        selected_tables = self._normalize_router_selected_tables(raw_output, candidates)
+        if not selected_tables:
+            return fallback_tables
+        return selected_tables[:safe_max_tables]
+
     def _route_tables(
         self,
         db: Session,
         question: str,
         selected_tables: list[str],
     ) -> dict:
-        """Route candidate tables: KB recall first, then schema-aware reranking."""
+        """Route candidate tables: KB recall + graph expansion + router decision."""
         if selected_tables:
             route_scope, _ = self.schema_service.validate_selected_tables(db, selected_tables)
         else:
@@ -659,46 +812,93 @@ class Text2SQLFacadeService:
                 "scores": {},
                 "clarify_question": "Routing signal is weak. Please provide more specific business entities or filters.",
             }
+
         ranked = sorted(final_scores.keys(), key=lambda t: (-final_scores.get(t, 0.0), t))
         config_top_k = max(1, int(settings.TABLE_ROUTE_MAX_CANDIDATES or 1))
+        max_join_tables = max(1, int(settings.TEXT2SQL_MAX_JOIN_TABLES or 1))
         if bool(settings.TEXT2SQL_MULTI_TABLE_ENABLED):
-            config_top_k = max(config_top_k, max(1, int(settings.TEXT2SQL_MAX_JOIN_TABLES or 1)))
+            config_top_k = max(config_top_k, max_join_tables)
         top_k = min(config_top_k, len(ranked))
-        top_candidates = ranked[:top_k]
-        _console_logger.info(
-            "[route] top_candidates=%s scores=%s",
-            json.dumps(top_candidates, ensure_ascii=False),
-            json.dumps(
-                {t: final_scores.get(t, 0.0) for t in top_candidates},
-                ensure_ascii=False,
-            ),
-        )
-        best_table = self._llm_select_best_table(
-            question,
-            top_candidates,
-            table_comment_map=option_comment_map,
-            table_columns_map=queryable_columns_map,
-        )
-        _console_logger.info(
-            "[route] llm_selected=%s (from %s)",
-            best_table,
-            json.dumps(top_candidates, ensure_ascii=False),
-        )
-        selected_candidate_tables: list[str]
-        mode = "single"
+        seed_tables = ranked[:top_k]
+
+        relation_scope_hints: list[dict] = []
+        if bool(settings.TEXT2SQL_MULTI_TABLE_ENABLED) and len(queryable_tables) > 1:
+            relation_scope_hints = self.relation_service.get_active_relations_by_tables(db, queryable_tables)
+        expanded_pool = self._expand_pool_by_relation_graph(seed_tables, relation_scope_hints)
+        route_pool_tables = [table_name for table_name in expanded_pool if table_name in queryable_tables]
+        if not route_pool_tables:
+            route_pool_tables = list(seed_tables)
+
+        route_pool_options = self.schema_service.list_table_options_by_names(db, route_pool_tables)
+        route_pool_comment_map = {
+            str(option.get("table_name") or "").strip(): str(option.get("table_comment") or "").strip()
+            for option in route_pool_options
+            if str(option.get("table_name") or "").strip()
+        }
+        route_pool_tables = [table_name for table_name in route_pool_tables if table_name in route_pool_comment_map]
+        route_pool_columns_map = self.field_permission_service.get_queryable_columns_map(db, route_pool_tables)
+        route_pool_tables = [table_name for table_name in route_pool_tables if table_name in route_pool_columns_map]
+        if not route_pool_tables:
+            return {
+                "mode": "miss",
+                "candidates": [],
+                "scores": {},
+                "clarify_question": "No queryable tables are available under current table/field permissions.",
+            }
+
+        route_pool_scores = {name: float(final_scores.get(name, 0.0)) for name in route_pool_tables}
+        route_pool_tables = sorted(route_pool_tables, key=lambda name: (-route_pool_scores.get(name, 0.0), name))
+
+        relation_hints_for_router = self.relation_service.get_active_relations_by_tables(db, route_pool_tables)
+
         if bool(settings.TEXT2SQL_MULTI_TABLE_ENABLED):
-            max_tables = max(1, int(settings.TEXT2SQL_MAX_JOIN_TABLES or 1))
-            ordered = [best_table] + [item for item in top_candidates if item != best_table]
-            selected_candidate_tables = ordered[:max_tables]
-            if len(selected_candidate_tables) > 1:
-                mode = "multi"
+            selected_candidate_tables = self._llm_route_tables(
+                question,
+                route_pool_tables,
+                table_comment_map=route_pool_comment_map,
+                table_columns_map=route_pool_columns_map,
+                relation_hints=relation_hints_for_router,
+                max_tables=max_join_tables,
+            )
+            mode = "multi" if len(selected_candidate_tables) > 1 else "single"
         else:
-            selected_candidate_tables = [best_table]
+            best_table = self._llm_select_best_table(
+                question,
+                route_pool_tables,
+                table_comment_map=route_pool_comment_map,
+                table_columns_map=route_pool_columns_map,
+            )
+            selected_candidate_tables = [best_table] if best_table else []
+            mode = "single"
+
+        selected_candidate_tables = [
+            table_name
+            for table_name in self._normalize_table_list(selected_candidate_tables)
+            if table_name in route_pool_tables
+        ]
+        if not selected_candidate_tables and route_pool_tables:
+            selected_candidate_tables = [route_pool_tables[0]]
+
+        relation_hints_for_selected: list[dict] = []
+        if len(selected_candidate_tables) > 1:
+            relation_hints_for_selected = self.relation_service.get_active_relations_by_tables(db, selected_candidate_tables)
+            if not relation_hints_for_selected:
+                selected_candidate_tables = [selected_candidate_tables[0]]
+                mode = "single"
+
+        _console_logger.info(
+            "[route] seed=%s expanded=%s selected=%s",
+            json.dumps(seed_tables, ensure_ascii=False),
+            json.dumps(route_pool_tables, ensure_ascii=False),
+            json.dumps(selected_candidate_tables, ensure_ascii=False),
+        )
+
         return {
             "mode": mode,
             "candidates": selected_candidate_tables,
-            "route_pool_tables": top_candidates,
-            "scores": final_scores,
+            "route_pool_tables": route_pool_tables,
+            "scores": route_pool_scores,
+            "relation_hints": relation_hints_for_selected,
             "clarify_question": "",
         }
 
@@ -720,7 +920,7 @@ class Text2SQLFacadeService:
         if model is None:
             return candidates[0]
 
-        # 构建结构化的候选表描述，让 LLM 能清晰区分表注释和字�?
+        # Build a compact candidate summary so the model can compare tables clearly.
         info_lines: list[str] = []
         for table_name in candidates:
             comment = table_comment_map.get(table_name, "").strip()
@@ -730,11 +930,11 @@ class Text2SQLFacadeService:
                 for c in (table_columns_map or {}).get(table_name, set())
                 if str(c).strip()
             )
-            # 只展示前 15 个字段名，避免过长干扰判�?
+            # Show at most 15 columns to keep prompt concise.
             if len(columns) > 15:
                 columns = columns[:15] + [f"... total {len(columns)} columns"]
             columns_text = ", ".join(columns) if columns else "(no queryable columns)"
-            info_lines.append(f"- {label}\n  字段：{columns_text}")
+            info_lines.append(f"- {label}\n  columns: {columns_text}")
 
         candidates_info = "\n".join(info_lines)
         chain = _TABLE_SELECTION_PROMPT | model | StrOutputParser()
@@ -781,7 +981,7 @@ class Text2SQLFacadeService:
                 if token in question_tokens:
                     score += 0.85
             scores[table_name] = round(score, 6)
-            return scores
+        return scores
 
     @staticmethod
     def _normalize_table_list(tables) -> list[str]:
