@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
@@ -17,6 +19,7 @@ from schemas.knowledge import (
 from services.knowledge_file_service import knowledge_file_service
 
 router = APIRouter(prefix="/file", tags=["text2sql-file"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/upload", response_model=list[FileBatchUploadItem])
@@ -36,7 +39,17 @@ async def upload_files(
             custom_chunk_overlap=custom_chunk_overlap,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.exception("batch upload validation failed")
+        raise HTTPException(
+            status_code=400,
+            detail="\u6587\u4ef6\u4e0a\u4f20\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u6587\u4ef6\u6216\u7a0d\u540e\u91cd\u8bd5",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("batch upload failed")
+        raise HTTPException(
+            status_code=400,
+            detail="\u6587\u4ef6\u4e0a\u4f20\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u6587\u4ef6\u6216\u7a0d\u540e\u91cd\u8bd5",
+        ) from exc
 
 
 @router.get("/kb/{kb_id}", response_model=FilePageResponse)
@@ -57,7 +70,17 @@ def list_files_by_kb(
             page_size=safe_page_size,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.exception("list files by kb validation failed")
+        raise HTTPException(
+            status_code=400,
+            detail="\u67e5\u8be2\u6587\u4ef6\u5217\u8868\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("list files by kb failed")
+        raise HTTPException(
+            status_code=400,
+            detail="\u67e5\u8be2\u6587\u4ef6\u5217\u8868\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
+        ) from exc
 
     repo = KnowledgeFileRepository(db)
     items: list[KnowledgeFileResponse] = []
@@ -132,7 +155,17 @@ def update_file_strategy(
             message="File strategy updated, reprocess task queued",
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.exception("update file strategy validation failed")
+        raise HTTPException(
+            status_code=400,
+            detail="\u66f4\u65b0\u6587\u4ef6\u5207\u7247\u7b56\u7565\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("update file strategy failed")
+        raise HTTPException(
+            status_code=400,
+            detail="\u66f4\u65b0\u6587\u4ef6\u5207\u7247\u7b56\u7565\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
+        ) from exc
 
 
 @router.post("/{file_id}/reprocess", response_model=FileTaskSubmitResponse)
@@ -146,7 +179,17 @@ def reprocess_file(file_id: int, db: Session = Depends(get_db)):
             message="Reprocess task queued",
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.exception("reprocess file validation failed")
+        raise HTTPException(
+            status_code=400,
+            detail="\u91cd\u65b0\u5904\u7406\u6587\u4ef6\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("reprocess file failed")
+        raise HTTPException(
+            status_code=400,
+            detail="\u91cd\u65b0\u5904\u7406\u6587\u4ef6\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
+        ) from exc
 
 
 @router.delete("/{file_id}")
@@ -155,4 +198,14 @@ def delete_file(file_id: int, db: Session = Depends(get_db)):
         knowledge_file_service.delete_file(db=db, file_id=file_id)
         return {"ok": True}
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.exception("delete file validation failed")
+        raise HTTPException(
+            status_code=400,
+            detail="\u5220\u9664\u6587\u4ef6\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("delete file failed")
+        raise HTTPException(
+            status_code=400,
+            detail="\u5220\u9664\u6587\u4ef6\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5",
+        ) from exc

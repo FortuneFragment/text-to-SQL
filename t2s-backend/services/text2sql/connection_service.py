@@ -2,19 +2,21 @@
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.engine.url import make_url
 from sqlalchemy.orm import Session
 
-from core.config import settings
+from core.connection_password_cipher import ConnectionPasswordCipher
 from repositories.text2sql_connection_repo import Text2SQLConnectionRepository
 from schemas.text2sql import Text2SQLConnectionPayload, Text2SQLConnectionResponse
 
+
 class Text2SQLConnectionService:
     """管理数据库连接配置、连通性测试和运行时引擎缓存。"""
+
     def __init__(self):
         """初始化引擎缓存。"""
         self._cached_engine: Engine | None = None
         self._cached_uri: str = ""
+        self._password_cipher = ConnectionPasswordCipher()
 
     @staticmethod
     def _build_uri(
@@ -39,28 +41,11 @@ class Text2SQLConnectionService:
             return fallback
         return str(value).strip()
 
-    def _from_env(self) -> Text2SQLConnectionResponse:
-        """从环境变量读取连接配置并转换为响应对象。"""
-        uri = self._strip(settings.TEXT2SQL_DB_URI)
-        if not uri:
-            return Text2SQLConnectionResponse(configured=False)
-        parsed = make_url(uri)
-        return Text2SQLConnectionResponse(
-            configured=True,
-            db_type="mysql",
-            host=parsed.host or "",
-            port=int(parsed.port or 3306),
-            username=parsed.username or "",
-            database=(parsed.database or ""),
-            charset=parsed.query.get("charset", "utf8mb4"),
-            has_password=bool(parsed.password),
-        )
-
     def get_public_connection(self, db: Session) -> Text2SQLConnectionResponse:
         """返回前端可展示的连接配置（不带密码）。"""
         record = Text2SQLConnectionRepository(db).get_active()
         if record is None:
-            return self._from_env()
+            return Text2SQLConnectionResponse(configured=False)
         return Text2SQLConnectionResponse(
             configured=True,
             db_type="mysql",
@@ -108,7 +93,7 @@ class Text2SQLConnectionService:
         *,
         empty_password_error: str,
     ) -> str:
-        """在密码留空时复用已有连接密码，避免前端反复输入。"""
+        """在密码留空时复用已保存连接密码，避免前端反复输入。"""
         current = Text2SQLConnectionRepository(db).get_active()
         if (
             current is not None
@@ -121,19 +106,8 @@ class Text2SQLConnectionService:
                 payload=payload,
             )
         ):
-            return self._strip(current.password)
-
-        env_uri = self._strip(settings.TEXT2SQL_DB_URI)
-        if env_uri:
-            parsed = make_url(env_uri)
-            if parsed.password and self._is_same_target(
-                host=parsed.host,
-                port=parsed.port,
-                username=parsed.username,
-                database=parsed.database,
-                payload=payload,
-            ):
-                return self._strip(str(parsed.password))
+            decrypted = self._password_cipher.decrypt(current.password)
+            return self._strip(decrypted)
 
         raise ValueError(empty_password_error)
 
@@ -177,12 +151,13 @@ class Text2SQLConnectionService:
             charset=self._strip(payload.charset, "utf8mb4"),
         )
         self._test_uri(uri)
+        encrypted_password = self._password_cipher.encrypt(password)
         repo.upsert(
             db_type="mysql",
             host=self._strip(payload.host),
             port=payload.port,
             username=self._strip(payload.username),
-            password=password,
+            password=encrypted_password,
             database=self._strip(payload.database),
             charset=self._strip(payload.charset, "utf8mb4"),
         )
@@ -190,18 +165,19 @@ class Text2SQLConnectionService:
         return self.get_public_connection(db)
 
     def _resolve_runtime_uri(self, db: Session) -> str:
-        """优先取已保存连接，回退到环境变量连接。"""
+        """只从系统库已保存连接构建运行时 URI。"""
         record = Text2SQLConnectionRepository(db).get_active()
-        if record is not None:
-            return self._build_uri(
-                host=record.host,
-                port=record.port,
-                username=record.username,
-                password=record.password,
-                database=record.database,
-                charset=record.charset,
-            )
-        return self._strip(settings.TEXT2SQL_DB_URI)
+        if record is None:
+            return ""
+        decrypted_password = self._password_cipher.decrypt(record.password)
+        return self._build_uri(
+            host=record.host,
+            port=record.port,
+            username=record.username,
+            password=decrypted_password,
+            database=record.database,
+            charset=record.charset,
+        )
 
     def get_engine(self, db: Session) -> Engine:
         """返回可复用的 SQLAlchemy Engine。"""
@@ -221,4 +197,3 @@ class Text2SQLConnectionService:
             self._cached_engine.dispose()
         self._cached_engine = None
         self._cached_uri = ""
-

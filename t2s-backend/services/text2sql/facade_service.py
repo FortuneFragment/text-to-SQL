@@ -537,6 +537,8 @@ class Text2SQLFacadeService:
     def _score_table_profile_candidates(cls, question: str, table_profiles: dict[str, str]) -> dict[str, float]:
         question_tokens = cls._build_search_tokens(question, max_tokens=320)
         scores: dict[str, float] = {}
+        token_match_score = float(settings.TABLE_ROUTE_PROFILE_TOKEN_MATCH_SCORE or 0.0)
+        score_cap = max(0.0, float(settings.TABLE_ROUTE_PROFILE_SCORE_CAP or 0.0))
         for table_name, profile in table_profiles.items():
             profile_tokens = cls._build_search_tokens(profile, max_tokens=320)
             if not profile_tokens:
@@ -544,7 +546,7 @@ class Text2SQLFacadeService:
                 continue
 
             overlap = len(profile_tokens.intersection(question_tokens))
-            score = round(min(3.0, float(overlap) * 0.18), 6)
+            score = round(min(score_cap, float(overlap) * token_match_score), 6)
             scores[table_name] = score
         return scores
 
@@ -797,11 +799,19 @@ class Text2SQLFacadeService:
         profile_scores = self._score_table_profile_candidates(question, queryable_profiles)
 
         final_scores: dict[str, float] = {}
+        semantic_weight = float(settings.TABLE_ROUTE_SEMANTIC_SCORE_WEIGHT or 0.0)
+        keyword_weight = float(settings.TABLE_ROUTE_KEYWORD_SCORE_WEIGHT or 0.0)
+        profile_weight = float(settings.TABLE_ROUTE_PROFILE_SCORE_WEIGHT or 0.0)
         for table_name in scoring_tables:
             semantic_score = float(vector_scores.get(table_name, 0.0))
             keyword_score = float(keyword_scores.get(table_name, 0.0))
             profile_score = float(profile_scores.get(table_name, 0.0))
-            total_score = round(semantic_score * 10.0 + keyword_score + profile_score * 2.0, 6)
+            total_score = round(
+                semantic_score * semantic_weight
+                + keyword_score * keyword_weight
+                + profile_score * profile_weight,
+                6,
+            )
             if total_score > 0:
                 final_scores[table_name] = total_score
 
@@ -968,6 +978,8 @@ class Text2SQLFacadeService:
         question_text = str(question or "").lower()
         question_tokens = cls._build_search_tokens(question_text, max_tokens=320)
         scores: dict[str, float] = {}
+        exact_match_score = float(settings.TABLE_ROUTE_NAME_EXACT_MATCH_SCORE or 0.0)
+        token_match_score = float(settings.TABLE_ROUTE_NAME_TOKEN_MATCH_SCORE or 0.0)
         for table_name in table_names:
             normalized_table = str(table_name or "").strip().lower()
             if not normalized_table:
@@ -975,11 +987,11 @@ class Text2SQLFacadeService:
 
             score = 0.0
             if normalized_table in question_text:
-                score += 2.0
+                score += exact_match_score
 
             for token in cls._build_search_tokens(normalized_table, max_tokens=64):
                 if token in question_tokens:
-                    score += 0.85
+                    score += token_match_score
             scores[table_name] = round(score, 6)
         return scores
 

@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException
 
 from core.config import settings
@@ -8,6 +10,7 @@ from tasks.celery_app import celery_app
 from tasks.document_tasks import process_document_task, reprocess_document_task
 
 router = APIRouter(prefix="/task", tags=["text2sql-task"])
+logger = logging.getLogger(__name__)
 
 
 def _ensure_task_feature_enabled() -> None:
@@ -49,5 +52,6 @@ def get_task_status(task_id: str):
         return payload
 
     payload.successful = False
-    payload.error = str(result.result)
+    logger.error("task failed: task_id=%s state=%s error=%r", task_id, result.state, result.result)
+    payload.error = "\u4efb\u52a1\u6267\u884c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5"
     return payload

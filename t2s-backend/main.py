@@ -1,11 +1,10 @@
 ﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
+import logging
 from api.v1.text2sql import router as text2sql_router
 from core.config import settings
 from core.database import engine
 from core.startup_waiter import wait_for_docker_middlewares
-from models import Base
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -22,11 +21,11 @@ app.add_middleware(
 
 @app.on_event("startup")
 def on_startup() -> None:
-    """在服务启动时检查依赖并初始化数据库表。"""
+    """在服务启动时检查依赖连通性。"""
     connected_middlewares = wait_for_docker_middlewares(engine)
-    Base.metadata.create_all(bind=engine)
     if connected_middlewares:
-        print("[startup] 已连接中间件: " + ", ".join(connected_middlewares))
+        logger = logging.getLogger(__name__)
+        logger.info("已连接中间件: %s", connected_middlewares)
 
 @app.get("/health")
 def health() -> dict:

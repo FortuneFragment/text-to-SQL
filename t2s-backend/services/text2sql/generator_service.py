@@ -8,7 +8,6 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from sqlalchemy.orm import Session
 
-from core.config import settings
 from services.text2sql.schema_service import Text2SQLSchemaService
 
 _GENERATE_SQL_PROMPT = ChatPromptTemplate.from_messages([
@@ -109,9 +108,8 @@ class Text2SQLGeneratorService:
         if not selected_tables:
             raise ValueError("未选择可查询的表，无法生成 SQL")
         model = self._model_provider()
-        candidate_table = selected_tables[0]
         if model is None:
-            return f"SELECT * FROM {candidate_table} LIMIT {settings.TEXT2SQL_MAX_ROWS};"
+            raise ValueError("大模型不可用")
         schema_json = self._schema_service.build_live_schema_json(
             db,
             selected_tables,

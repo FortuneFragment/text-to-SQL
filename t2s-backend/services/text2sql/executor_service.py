@@ -25,6 +25,13 @@ class Text2SQLExecutorService:
         engine = self._engine_provider(db)
         sql = self._ensure_limit(sql)
         with engine.connect() as conn:
+            try:
+                transaction_mode = "READ ONLY" if settings.TEXT2SQL_READONLY else "READ WRITE"
+                conn.execute(text(f"SET SESSION TRANSACTION {transaction_mode}"))
+                conn.commit()
+            except Exception as exc:  # noqa: BLE001
+                raise RuntimeError("无法设置会话事务模式，请检查数据库事务配置") from exc
+
             timeout_ms = settings.TEXT2SQL_EXEC_TIMEOUT_SECONDS * 1000
             try:
                 conn.execute(text(f"SET SESSION MAX_EXECUTION_TIME={timeout_ms}"))

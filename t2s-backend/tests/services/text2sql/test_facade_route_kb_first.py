@@ -235,3 +235,50 @@ def test_route_tables_returns_no_signal_when_kb_and_keyword_have_no_hit(monkeypa
     assert route["mode"] == "no_signal"
     assert route["candidates"] == []
     assert str(route.get("clarify_question") or "").strip()
+
+
+def test_route_tables_uses_configured_score_weights(monkeypatch):
+    facade, _, _ = _build_facade()
+    monkeypatch.setattr(settings, "TABLE_ROUTE_KB_SEARCH_TOP_K", 50)
+    monkeypatch.setattr(settings, "TABLE_ROUTE_KB_RECALL_CANDIDATES", 3)
+    monkeypatch.setattr(settings, "TABLE_ROUTE_MAX_CANDIDATES", 3)
+    monkeypatch.setattr(settings, "TEXT2SQL_MULTI_TABLE_ENABLED", False)
+    monkeypatch.setattr(settings, "TABLE_ROUTE_KB_ID", 0)
+
+    monkeypatch.setattr(settings, "TABLE_ROUTE_SEMANTIC_SCORE_WEIGHT", 1.0)
+    monkeypatch.setattr(settings, "TABLE_ROUTE_KEYWORD_SCORE_WEIGHT", 10.0)
+    monkeypatch.setattr(settings, "TABLE_ROUTE_PROFILE_SCORE_WEIGHT", 0.0)
+
+    monkeypatch.setattr(
+        facade.vector_service,
+        "search_tables",
+        lambda db, question, *, candidate_tables, top_k, candidate_profiles=None, route_kb_id=None: {
+            "t_order": 0.1,
+            "t_customer": 0.9,
+            "t_product": 0.0,
+        },
+    )
+    monkeypatch.setattr(
+        facade,
+        "_score_table_name_candidates",
+        lambda question, table_names: {
+            "t_order": 1.0,
+            "t_customer": 0.0,
+            "t_product": 0.0,
+        },
+    )
+    monkeypatch.setattr(
+        facade,
+        "_score_table_profile_candidates",
+        lambda question, table_profiles: {name: 0.0 for name in table_profiles},
+    )
+
+    route = facade._route_tables(
+        db=object(),
+        question="query order data",
+        selected_tables=[],
+    )
+
+    assert route["mode"] == "single"
+    assert route["scores"]["t_order"] > route["scores"]["t_customer"]
+    assert route["route_pool_tables"][0] == "t_order"

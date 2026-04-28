@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "Text2SQL Server"
     VERSION: str = "1.0.0"
     API_V1_STR: str = "/api/v1"
+    APP_SECRET_KEY: str = ""
+    FERNET_KEY: str = ""
 
     CORS_ORIGINS: List[str] = ["*"]
 
@@ -47,7 +49,6 @@ class Settings(BaseSettings):
     ]
 
     TEXT2SQL_ENABLED: bool = True
-    TEXT2SQL_DB_URI: str = ""
     TEXT2SQL_MAX_ROWS: int = 50
     TEXT2SQL_READONLY: bool = True
     TEXT2SQL_EXEC_TIMEOUT_SECONDS: int = 20
@@ -68,6 +69,13 @@ class Settings(BaseSettings):
     TABLE_ROUTE_KB_RECALL_CANDIDATES: int = 60
     TABLE_ROUTE_MAX_CANDIDATES: int = 10
     TABLE_ROUTE_AMBIGUITY_DELTA: float = 0.15
+    TABLE_ROUTE_SEMANTIC_SCORE_WEIGHT: float = 10.0
+    TABLE_ROUTE_KEYWORD_SCORE_WEIGHT: float = 1.0
+    TABLE_ROUTE_PROFILE_SCORE_WEIGHT: float = 2.0
+    TABLE_ROUTE_NAME_EXACT_MATCH_SCORE: float = 2.0
+    TABLE_ROUTE_NAME_TOKEN_MATCH_SCORE: float = 0.85
+    TABLE_ROUTE_PROFILE_TOKEN_MATCH_SCORE: float = 0.18
+    TABLE_ROUTE_PROFILE_SCORE_CAP: float = 3.0
 
     KB_ENABLED: bool = True
     KB_ASYNC_ENABLED: bool = True

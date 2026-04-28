@@ -15,7 +15,7 @@ class Text2SQLConnection(Base):
     host: Mapped[str] = mapped_column(String(255), nullable=False)
     port: Mapped[int] = mapped_column(Integer, nullable=False, default=3306)
     username: Mapped[str] = mapped_column(String(255), nullable=False)
-    password: Mapped[str] = mapped_column(String(255), nullable=False)
+    password: Mapped[str] = mapped_column(String(1024), nullable=False)
     database: Mapped[str] = mapped_column(String(255), nullable=False)
     charset: Mapped[str] = mapped_column(String(64), nullable=False, default="utf8mb4")
 
