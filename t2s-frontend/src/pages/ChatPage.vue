@@ -1,0 +1,695 @@
+<template>
+  <section class="chat-page">
+    <div class="chat-shell panel">
+      <header class="page-header">
+        <div>
+          <h2>数据问答</h2>
+        </div>
+      </header>
+
+      <div v-if="notice" class="notice" :class="noticeType">{{ notice }}</div>
+
+      <div v-if="!connectionConfigured" class="empty-state">
+        <div class="empty-title">外部数据库尚未配置</div>
+        <p>请联系管理员完成数据连接配置。</p>
+      </div>
+
+      <div ref="conversationRef" class="conversation">
+        <div v-if="connectionConfigured && messages.length === 0" class="welcome">
+          <h3>今天想查什么数据？</h3>
+        </div>
+
+        <article v-for="item in messages" :key="item.id" class="turn">
+          <div class="bubble-row user-row">
+            <div class="avatar user-avatar">Q</div>
+            <div class="bubble user-bubble">{{ item.question }}</div>
+          </div>
+
+          <div class="bubble-row assistant-row">
+            <div class="avatar assistant-avatar">A</div>
+            <div class="bubble assistant-bubble">
+              <template v-if="item.status === 'streaming'">
+                <div class="progress-line">{{ item.progressStatus || "正在查询..." }}</div>
+                <div v-if="item.summaryStreaming || item.answer" class="answer-text streaming-answer">
+                  {{ item.answer || "正在生成结果总结..." }}
+                </div>
+              </template>
+
+              <template v-else-if="item.status === 'clarify'">
+                <div class="clarification-box">{{ item.clarification || "当前问题需要补充更多条件。" }}</div>
+              </template>
+
+              <template v-else-if="item.status === 'error'">
+                <div class="error-box">{{ item.error_message || "查询失败" }}</div>
+              </template>
+
+              <template v-else>
+                <div class="answer-text">{{ item.answer || "没有生成可展示的回答。" }}</div>
+                <div class="meta-info">
+                  {{ item.row_count }} 行结果
+                  <span v-if="item.repaired"> · 已自动修复 SQL</span>
+                </div>
+
+                <details v-if="Array.isArray(item.rows) && item.rows.length" class="data-preview" open>
+                  <summary>查看数据明细（前 10 行）</summary>
+                  <div class="result-table-wrap">
+                    <table class="result-table">
+                      <thead>
+                        <tr>
+                          <th v-for="col in columnsOf(item)" :key="col">{{ col }}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr v-for="(row, rIdx) in item.rows.slice(0, 10)" :key="rIdx">
+                          <td v-for="col in columnsOf(item)" :key="`${rIdx}-${col}`">{{ formatCellValue(row[col]) }}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+
+                <div v-if="item.log_id" class="feedback-row">
+                  <span>这次回答有帮助吗？</span>
+                  <div class="star-row" aria-label="回答评分">
+                    <button
+                      v-for="score in [1, 2, 3, 4, 5]"
+                      :key="score"
+                      type="button"
+                      class="star-btn"
+                      :class="{ active: item.feedbackScore >= score }"
+                      :disabled="item.feedbackSubmitting || item.feedbackSubmitted"
+                      :title="`${score} 星`"
+                      @click="submitFeedback(item, score)"
+                    >
+                      ★
+                    </button>
+                  </div>
+                  <span v-if="item.feedbackSubmitted" class="feedback-done">已记录</span>
+                </div>
+              </template>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <form class="composer" @submit.prevent="sendQuestion">
+        <textarea
+          v-model="question"
+          rows="3"
+          :disabled="loading.query || !connectionConfigured"
+          placeholder="输入你的数据问题，按 Enter 发送."
+          @keydown.enter.exact.prevent="sendQuestion"
+        />
+        <div class="composer-actions">
+          <button type="button" class="btn-ghost" :disabled="loading.query || messages.length === 0" @click="newConversation">
+            新对话
+          </button>
+          <button class="btn-primary" :disabled="loading.query || !connectionConfigured">
+            {{ loading.query ? "查询中..." : "发送" }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
+</template>
+
+<script setup>
+import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { apiRequest, streamRequest } from "../api/client";
+
+const loading = reactive({ query: false });
+const question = ref("");
+const messages = ref([]);
+const connectionConfigured = ref(false);
+const notice = ref("");
+const noticeType = ref("info");
+const streamStopper = ref(null);
+const conversationRef = ref(null);
+
+let turnSeq = 0;
+
+function setNotice(message, type = "info") {
+  notice.value = message;
+  noticeType.value = type;
+}
+
+function stopActiveStream() {
+  if (!streamStopper.value) return;
+  streamStopper.value();
+  streamStopper.value = null;
+}
+
+function columnsOf(item) {
+  if (Array.isArray(item?.columns) && item.columns.length) return item.columns;
+  const firstRow = Array.isArray(item?.rows) ? item.rows[0] : null;
+  return firstRow ? Object.keys(firstRow) : [];
+}
+
+function formatCellValue(value) {
+  if (value === null || value === undefined) return "空值";
+  if (typeof value === "string" && ["null", "none"].includes(value.trim().toLowerCase())) {
+    return "空值";
+  }
+  return value;
+}
+
+function normalizeQueryResult(questionText, data, base = {}) {
+  // 优先展示解码后的中文行（decoded_rows），缺省回退原始码值 rows。
+  const rows = Array.isArray(data?.decoded_rows) && data.decoded_rows.length
+    ? data.decoded_rows
+    : (Array.isArray(data?.rows) ? data.rows : []);
+  const columns = Array.isArray(data?.columns) ? data.columns : columnsOf({ rows });
+  const clarification = String(data?.clarification || "");
+  return {
+    ...base,
+    question: questionText,
+    status: clarification ? "clarify" : "done",
+    sql: data?.sql || base.sql || base.generated_sql || "",
+    generated_sql: base.generated_sql || data?.sql || "",
+    columns,
+    rows,
+    answer: data?.answer || base.answer || "",
+    summaryStreaming: false,
+    row_count: Number(data?.row_count ?? rows.length),
+    repaired: Boolean(data?.repaired),
+    clarification,
+    log_id: data?.log_id ?? base.log_id ?? null,
+    error_message: "",
+    feedbackScore: base.feedbackScore || 0,
+    feedbackSubmitting: false,
+    feedbackSubmitted: false,
+  };
+}
+
+function buildConversationHistory() {
+  return messages.value
+    .filter((item) => item.status === "done" && item.sql)
+    .slice(-20)
+    .map((item) => ({ question: item.question, sql: item.sql, answer: item.answer || "" }));
+}
+
+async function scrollToBottom() {
+  await nextTick();
+  const el = conversationRef.value;
+  if (el) el.scrollTop = el.scrollHeight;
+}
+
+function newConversation() {
+  stopActiveStream();
+  messages.value = [];
+  setNotice("已开始新对话。", "info");
+}
+
+async function loadConnectionStatus() {
+  try {
+    const data = await apiRequest("/text2sql/connection");
+    connectionConfigured.value = Boolean(data.configured);
+  } catch {
+    connectionConfigured.value = false;
+  }
+}
+
+async function sendQuestion() {
+  const q = question.value.trim();
+  if (!q) {
+    setNotice("请先输入问题", "error");
+    return;
+  }
+  if (loading.query) return;
+
+  const activeTurn = {
+    id: `chat-${Date.now()}-${turnSeq++}`,
+    question: q,
+    status: "streaming",
+    progressStatus: "正在启动查询...",
+    selected_tables: [],
+    generated_sql: "",
+    sql: "",
+    columns: [],
+    rows: [],
+    answer: "",
+    summaryStreaming: false,
+    row_count: 0,
+    repaired: false,
+    clarification: "",
+    log_id: null,
+    error_message: "",
+    feedbackScore: 0,
+    feedbackSubmitting: false,
+    feedbackSubmitted: false,
+  };
+
+  const payload = { question: q, history: buildConversationHistory() };
+  messages.value.push(activeTurn);
+  question.value = "";
+  loading.query = true;
+  stopActiveStream();
+  await scrollToBottom();
+
+  try {
+    await new Promise((resolve, reject) => {
+      let finished = false;
+      streamStopper.value = streamRequest("/text2sql/query/stream", payload, {
+        onStatus: (data) => {
+          activeTurn.progressStatus = data?.message || "";
+          if (data?.step === "summarizing") {
+            activeTurn.summaryStreaming = true;
+          }
+          scrollToBottom();
+        },
+        onSelectedTables: (data) => {
+          activeTurn.selected_tables = Array.isArray(data?.selected_tables) ? data.selected_tables : [];
+        },
+        onGeneratedSql: (data) => {
+          const sql = data?.sql || data?.final_sql || "";
+          activeTurn.generated_sql = sql;
+          if (!activeTurn.sql) activeTurn.sql = sql;
+        },
+        onSqlResult: (data) => {
+          activeTurn.sql = data?.sql || activeTurn.generated_sql || activeTurn.sql;
+          activeTurn.columns = Array.isArray(data?.columns) ? data.columns : [];
+          activeTurn.rows = Array.isArray(data?.decoded_rows) && data.decoded_rows.length
+            ? data.decoded_rows
+            : (Array.isArray(data?.rows) ? data.rows : []);
+          activeTurn.row_count = Number(data?.row_count ?? activeTurn.rows.length);
+          activeTurn.repaired = Boolean(data?.repaired);
+        },
+        onAnswerDelta: (content) => {
+          activeTurn.summaryStreaming = true;
+          if (content) {
+            activeTurn.answer += content;
+            scrollToBottom();
+          }
+        },
+        onDone: (data) => {
+          if (finished) return;
+          finished = true;
+          Object.assign(activeTurn, normalizeQueryResult(q, data, activeTurn));
+          streamStopper.value = null;
+          resolve();
+        },
+        onError: (error) => {
+          if (finished) return;
+          finished = true;
+          activeTurn.status = "error";
+          activeTurn.error_message = error?.message || "查询失败";
+          activeTurn.summaryStreaming = false;
+          streamStopper.value = null;
+          reject(new Error(activeTurn.error_message));
+        },
+      });
+    });
+
+    await scrollToBottom();
+    setNotice(activeTurn.status === "clarify" ? "需要补充查询条件。" : "查询成功", activeTurn.status === "clarify" ? "info" : "success");
+  } catch (error) {
+    setNotice(`查询失败：${error.message}`, "error");
+  } finally {
+    loading.query = false;
+  }
+}
+
+async function submitFeedback(item, score) {
+  if (!item?.log_id || !score) return;
+  item.feedbackSubmitting = true;
+  try {
+    await apiRequest("/text2sql/query/feedback", {
+      method: "POST",
+      body: JSON.stringify({
+        log_id: item.log_id,
+        score,
+        question: item.question,
+        sql: item.sql || item.generated_sql || "",
+        answer: item.answer || "",
+        selected_tables: item.selected_tables || [],
+      }),
+    });
+    item.feedbackScore = score;
+    item.feedbackSubmitted = true;
+    setNotice(score >= 5 ? "反馈已记录，满分回答将回流到 few-shot 知识库。" : "反馈已记录。", "success");
+  } catch (error) {
+    setNotice(`反馈提交失败：${error.message}`, "error");
+  } finally {
+    item.feedbackSubmitting = false;
+  }
+}
+
+onMounted(async () => {
+  await loadConnectionStatus();
+});
+
+onBeforeUnmount(() => {
+  stopActiveStream();
+});
+</script>
+
+<style scoped>
+.chat-page {
+  min-height: 100dvh;
+  background:
+    radial-gradient(circle at 50% -10%, rgba(255, 255, 255, 0.98), transparent 30rem),
+    linear-gradient(180deg, #fbfbf8 0%, #f4f4f0 100%);
+  color: var(--text-main);
+}
+
+.panel {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.chat-shell {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  overflow: hidden;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px clamp(16px, 4vw, 42px);
+  border-bottom: 1px solid var(--line);
+  background: rgba(247, 247, 244, 0.86);
+  backdrop-filter: blur(18px);
+}
+
+h2 {
+  margin: 0 0 8px;
+  font-size: clamp(22px, 2.6vw, 34px);
+  line-height: 1.08;
+  color: var(--text-main);
+  font-weight: 730;
+  letter-spacing: 0;
+}
+
+.page-header p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.notice {
+  justify-self: center;
+  width: min(960px, calc(100% - 32px));
+  margin: 16px 0 0;
+  padding: 12px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 560;
+}
+
+.notice.success {
+  background: var(--success-light);
+  color: var(--success);
+  border: 1px solid rgba(4, 120, 87, 0.16);
+}
+
+.notice.error {
+  background: var(--error-light);
+  color: var(--error);
+  border: 1px solid rgba(180, 35, 24, 0.16);
+}
+
+.notice.info {
+  background: var(--info-light);
+  color: var(--info);
+  border: 1px solid rgba(29, 78, 216, 0.16);
+}
+
+.conversation {
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  overflow-y: auto;
+  padding: 28px 16px 30px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.welcome,
+.empty-state {
+  text-align: center;
+  color: var(--text-muted);
+  padding: 68px 16px;
+}
+
+.welcome h3,
+.empty-title {
+  margin: 0 0 8px;
+  color: var(--text-main);
+  font-size: clamp(24px, 3vw, 42px);
+  line-height: 1.08;
+  font-weight: 730;
+  letter-spacing: 0;
+}
+
+.welcome p,
+.empty-state p {
+  margin: 0 0 16px;
+}
+
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.bubble-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.user-row {
+  justify-content: flex-end;
+}
+
+.assistant-row {
+  justify-content: flex-start;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 690;
+}
+
+.user-avatar {
+  order: 2;
+  background: #111111;
+}
+
+.assistant-avatar {
+  background: #6f6f66;
+}
+
+.bubble {
+  max-width: min(760px, calc(100% - 48px));
+  padding: 14px 16px;
+  border-radius: 10px;
+  line-height: 1.6;
+  font-size: 15px;
+}
+
+.user-bubble {
+  color: var(--text-main);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.assistant-bubble {
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid var(--line);
+  color: var(--text-main);
+}
+
+.progress-line,
+.meta-info {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.answer-text {
+  white-space: pre-wrap;
+}
+
+.clarification-box {
+  background: #fffbeb;
+  color: #92400e;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.error-box {
+  background: var(--error-light);
+  color: var(--error);
+  border: 1px solid rgba(180, 35, 24, 0.16);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.data-preview {
+  margin-top: 12px;
+}
+
+.data-preview summary {
+  color: var(--text-main);
+  cursor: pointer;
+  font-weight: 620;
+  font-size: 13px;
+}
+
+.result-table-wrap {
+  margin-top: 10px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.result-table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.result-table th,
+.result-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.result-table th {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-weight: 620;
+}
+
+.feedback-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.star-row {
+  display: flex;
+  gap: 4px;
+}
+
+.star-btn {
+  border: none;
+  background: transparent;
+  color: #c8c8c0;
+  cursor: pointer;
+  font-size: 19px;
+  line-height: 1;
+  padding: 2px 3px;
+}
+
+.star-btn.active,
+.star-btn:hover:not(:disabled) {
+  color: #a16207;
+}
+
+.star-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.feedback-done {
+  color: var(--success);
+}
+
+.composer {
+  border-top: 1px solid var(--line);
+  padding: 16px clamp(16px, 4vw, 42px) 22px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: end;
+  background: rgba(247, 247, 244, 0.92);
+  backdrop-filter: blur(18px);
+}
+
+textarea {
+  width: 100%;
+  max-width: 820px;
+  justify-self: end;
+  border-radius: 10px;
+  padding: 13px 14px;
+  font-size: 15px;
+  resize: vertical;
+  color: var(--text-main);
+}
+
+.composer-actions {
+  display: flex;
+  gap: 10px;
+}
+
+button,
+.btn-outline {
+  padding: 11px 16px;
+  font-size: 14px;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-outline {
+  display: inline-flex;
+}
+
+@media (max-width: 720px) {
+  .page-header,
+  .composer {
+    grid-template-columns: 1fr;
+  }
+
+  .page-header {
+    flex-direction: column;
+  }
+
+  .composer {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  textarea {
+    max-width: none;
+  }
+
+  .composer-actions {
+    justify-content: flex-end;
+  }
+
+  .bubble {
+    max-width: calc(100% - 46px);
+  }
+}
+</style>

@@ -79,7 +79,7 @@ class Text2SQLTableRelationRepository:
         self.db.delete(relation)
         self.db.commit()
 
-    def list_active_by_tables(
+    def list_by_tables(
         self,
         *,
         user_id: int,
@@ -93,7 +93,6 @@ class Text2SQLTableRelationRepository:
             .filter(
                 Text2SQLTableRelation.user_id == user_id,
                 Text2SQLTableRelation.connection_key == connection_key,
-                Text2SQLTableRelation.is_active == True,  # noqa: E712
                 Text2SQLTableRelation.source_table.in_(table_names),
                 Text2SQLTableRelation.target_table.in_(table_names),
             )

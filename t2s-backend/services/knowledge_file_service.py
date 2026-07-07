@@ -10,11 +10,11 @@ from fastapi import UploadFile
 from sqlalchemy.orm import Session
 
 from core.config import settings
-from core.milvus_name import normalize_collection_name
+from core.es_index_name import normalize_index_name
 from models.knowledge_file import KnowledgeFile
 from repositories.knowledge_base_repo import KnowledgeBaseRepository
 from repositories.knowledge_file_repo import KnowledgeFileRepository
-from repositories.milvus_repo import milvus_repo
+from repositories.es_repo import es_repo
 from repositories.minio_repo import minio_repo
 from services.knowledge_service import knowledge_service
 
@@ -51,7 +51,7 @@ class KnowledgeFileService:
             if kb is None:
                 raise ValueError(f"Knowledge base not found: {kb_id}")
 
-        normalized = normalize_collection_name(str(kb.collection_name))
+        normalized = normalize_index_name(str(kb.collection_name))
         if normalized != str(kb.collection_name):
             used_names = {item.collection_name for item in kb_repo.list_all() if int(item.id) != int(kb.id)}
             candidate = normalized
@@ -216,13 +216,12 @@ class KnowledgeFileService:
             raise ValueError("Knowledge base not found")
 
         try:
-            milvus_repo.delete_chunks_by_file_id(
+            es_repo.delete_chunks_by_file_id(
                 int(file_entity.id),
-                collection_name=kb_entity.collection_name,
-                vector_dim=int(settings.MILVUS_VECTOR_DIM),
+                index_name=kb_entity.collection_name,
             )
         except Exception:
-            # Keep MySQL/MinIO cleanup idempotent even if Milvus item already gone.
+            # Keep MySQL/MinIO cleanup idempotent even if ES item already gone.
             pass
 
         file_repo.delete_chunks_by_file_id(int(file_entity.id))

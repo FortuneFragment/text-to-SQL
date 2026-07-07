@@ -3,12 +3,7 @@
     <header class="page-header panel">
       <div>
         <h2>表关系配置</h2>
-        <p>三步向导维护关系白名单，支持批量导入导出。</p>
-      </div>
-      <div class="quick-nav">
-        <RouterLink to="/table" class="quick-link">表开关</RouterLink>
-        <RouterLink to="/field" class="quick-link">字段开关</RouterLink>
-        <RouterLink to="/qa" class="quick-link">知识问答</RouterLink>
+        <p>三步向导维护关系白名单，支持 XLSX 批量导入导出。</p>
       </div>
     </header>
 
@@ -28,15 +23,14 @@
         </div>
       </div>
       <div class="toolbar-right">
-        <button class="btn-ghost" :disabled="loading.list || relations.length === 0" @click="exportJson">导出 JSON</button>
-        <button class="btn-ghost" :disabled="loading.list || relations.length === 0" @click="exportCsv">导出 CSV</button>
-        <button class="btn-ghost" :disabled="loading.importing" @click="triggerImport">导入 JSON/CSV</button>
+        <button class="btn-ghost" :disabled="loading.list || relations.length === 0" @click="exportXlsx">导出 XLSX</button>
+        <button class="btn-ghost" :disabled="loading.importing" @click="triggerImport">导入 XLSX</button>
         <button class="btn-primary" @click="openCreateWizard">新增关系</button>
       </div>
       <input
         ref="importInputRef"
         type="file"
-        accept=".json,.csv,text/csv,application/json"
+        accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
         class="hidden-file"
         @change="onImportFileChange"
       />
@@ -64,16 +58,15 @@
               <th>关系摘要</th>
               <th>类型</th>
               <th>描述</th>
-              <th>状态</th>
               <th>操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="loading.list">
-              <td colspan="5" class="empty-cell">加载中...</td>
+              <td colspan="4" class="empty-cell">加载中...</td>
             </tr>
             <tr v-else-if="relations.length === 0">
-              <td colspan="5" class="empty-cell">暂无关系，点击“新增关系”开始配置。</td>
+              <td colspan="4" class="empty-cell">暂无关系，点击“新增关系”开始配置。</td>
             </tr>
             <tr v-for="item in relations" :key="item.id">
               <td>
@@ -84,12 +77,6 @@
                 <span class="type-chip">{{ item.relation_type || "N:1" }}</span>
               </td>
               <td class="desc-cell">{{ item.description || "-" }}</td>
-              <td>
-                <label class="switch-sm">
-                  <input type="checkbox" :checked="item.is_active" @change="toggleActive(item)" />
-                  <span class="slider"></span>
-                </label>
-              </td>
               <td>
                 <div class="actions">
                   <button class="btn-link" @click="openEditWizard(item)">编辑</button>
@@ -189,24 +176,15 @@
           </template>
 
           <template v-else>
-            <div class="grid-two">
-              <label>
-                <span>关系类型</span>
-                <select v-model="form.relation_type">
-                  <option value="1:1">1:1</option>
-                  <option value="1:N">1:N</option>
-                  <option value="N:1">N:1</option>
-                  <option value="N:N">N:N</option>
-                </select>
-              </label>
-              <div class="switch-line">
-                <span>启用关系</span>
-                <label class="switch-sm">
-                  <input v-model="form.is_active" type="checkbox" />
-                  <span class="slider"></span>
-                </label>
-              </div>
-            </div>
+            <label>
+              <span>关系类型</span>
+              <select v-model="form.relation_type">
+                <option value="1:1">1:1</option>
+                <option value="1:N">1:N</option>
+                <option value="N:1">N:1</option>
+                <option value="N:N">N:N</option>
+              </select>
+            </label>
             <label>
               <span>关系描述</span>
               <textarea v-model.trim="form.description" rows="3" placeholder="例如：学生表通过班级ID关联班级表"></textarea>
@@ -233,8 +211,7 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
-import { RouterLink } from "vue-router";
-import { apiRequest } from "../api/client";
+import { API_BASE, apiRequest, readErrorDetail } from "../api/client";
 
 const notice = ref("");
 const noticeType = ref("info");
@@ -270,7 +247,6 @@ const form = reactive({
   column_pairs: [{ source_column: "", target_column: "" }],
   relation_type: "N:1",
   description: "",
-  is_active: true,
 });
 
 const totalPages = computed(() => {
@@ -360,7 +336,6 @@ function normalizeRelationPayload(payload) {
     target_columns: targetColumns,
     relation_type: String(payload.relation_type || "N:1").trim() || "N:1",
     description: String(payload.description || "").trim(),
-    is_active: payload.is_active !== false,
   };
 }
 
@@ -425,7 +400,6 @@ function resetForm() {
   form.column_pairs = [{ source_column: "", target_column: "" }];
   form.relation_type = "N:1";
   form.description = "";
-  form.is_active = true;
   sourceTableKeyword.value = "";
   targetTableKeyword.value = "";
 }
@@ -447,7 +421,6 @@ async function openEditWizard(item) {
   form.target_table = String(item.target_table || "");
   form.relation_type = String(item.relation_type || "N:1") || "N:1";
   form.description = String(item.description || "");
-  form.is_active = Boolean(item.is_active);
   sourceTableKeyword.value = String(item.source_table || "");
   targetTableKeyword.value = String(item.target_table || "");
 
@@ -551,7 +524,6 @@ function buildSavePayload() {
     target_columns: targetColumns,
     relation_type: String(form.relation_type || "N:1").trim() || "N:1",
     description: String(form.description || "").trim(),
-    is_active: Boolean(form.is_active),
   };
 }
 
@@ -585,21 +557,6 @@ async function saveRelation() {
     setNotice(`保存失败：${error.message}`, "error");
   } finally {
     loading.save = false;
-  }
-}
-
-async function toggleActive(item) {
-  const payload = normalizeRelationPayload(item);
-  payload.is_active = !Boolean(item.is_active);
-  try {
-    await apiRequest(`/text2sql/relation/${item.id}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
-    item.is_active = payload.is_active;
-    setNotice("状态已更新", "success");
-  } catch (error) {
-    setNotice(`更新状态失败：${error.message}`, "error");
   }
 }
 
@@ -643,72 +600,6 @@ function triggerImport() {
   }
 }
 
-function escapeCsvCell(value) {
-  const text = String(value ?? "");
-  if (/[",\n]/.test(text)) {
-    return `"${text.replace(/"/g, '""')}"`;
-  }
-  return text;
-}
-
-function parseCsvLine(line) {
-  const cells = [];
-  let current = "";
-  let inQuotes = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
-    if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === "," && !inQuotes) {
-      cells.push(current);
-      current = "";
-    } else {
-      current += char;
-    }
-  }
-  cells.push(current);
-  return cells;
-}
-
-function parseCsvRelations(text) {
-  const lines = String(text || "")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  if (lines.length <= 1) return [];
-
-  const headers = parseCsvLine(lines[0]).map((item) => item.trim());
-  const records = [];
-  for (let i = 1; i < lines.length; i += 1) {
-    const row = parseCsvLine(lines[i]);
-    const obj = {};
-    headers.forEach((header, idx) => {
-      obj[header] = row[idx] ?? "";
-    });
-    records.push({
-      source_table: obj.source_table,
-      source_columns: String(obj.source_columns || "")
-        .split("|")
-        .map((v) => v.trim())
-        .filter(Boolean),
-      target_table: obj.target_table,
-      target_columns: String(obj.target_columns || "")
-        .split("|")
-        .map((v) => v.trim())
-        .filter(Boolean),
-      relation_type: obj.relation_type || "N:1",
-      description: obj.description || "",
-      is_active: String(obj.is_active || "true").toLowerCase() !== "false",
-    });
-  }
-  return records;
-}
-
 async function onImportFileChange(event) {
   const file = event?.target?.files?.[0];
   if (!file) return;
@@ -716,50 +607,20 @@ async function onImportFileChange(event) {
   loading.importing = true;
   clearNotice();
   try {
-    const text = await file.text();
-    const isJson = file.name.toLowerCase().endsWith(".json");
-    const imported = isJson ? JSON.parse(text) : parseCsvRelations(text);
-    const rows = Array.isArray(imported) ? imported : [];
-    if (rows.length === 0) {
-      setNotice("导入文件为空或格式不正确", "error");
-      return;
-    }
-
-    let successCount = 0;
-    let failCount = 0;
-    const failMessages = [];
-
-    for (const row of rows) {
-      const payload = normalizeRelationPayload(row);
-      if (
-        !payload.source_table ||
-        !payload.target_table ||
-        payload.source_columns.length === 0 ||
-        payload.target_columns.length === 0 ||
-        payload.source_columns.length !== payload.target_columns.length
-      ) {
-        failCount += 1;
-        failMessages.push(`无效数据: ${JSON.stringify(row)}`);
-        continue;
-      }
-
-      try {
-        await apiRequest("/text2sql/relation", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
-        successCount += 1;
-      } catch (error) {
-        failCount += 1;
-        failMessages.push(`${payload.source_table} -> ${payload.target_table}: ${error.message}`);
-      }
-    }
-
+    const formData = new FormData();
+    formData.append("file", file);
+    const result = await apiRequest("/text2sql/relation/import", {
+      method: "POST",
+      body: formData,
+    });
     await loadRelations();
-    if (failCount === 0) {
-      setNotice(`导入完成：成功 ${successCount} 条`, "success");
+    const failed = Number(result.failed || 0);
+    const created = Number(result.created || 0);
+    if (failed === 0) {
+      setNotice(`导入完成：成功 ${created} 条`, "success");
     } else {
-      setNotice(`导入完成：成功 ${successCount} 条，失败 ${failCount} 条。${failMessages.slice(0, 2).join("；")}`, "error");
+      const detail = Array.isArray(result.errors) ? result.errors.slice(0, 2).join("；") : "";
+      setNotice(`导入完成：成功 ${created} 条，失败 ${failed} 条。${detail}`, "error");
     }
   } catch (error) {
     setNotice(`导入失败：${error.message}`, "error");
@@ -769,7 +630,7 @@ async function onImportFileChange(event) {
 }
 
 function downloadBlob(filename, content, type) {
-  const blob = new Blob([content], { type });
+  const blob = content instanceof Blob ? content : new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
@@ -778,58 +639,24 @@ function downloadBlob(filename, content, type) {
   URL.revokeObjectURL(url);
 }
 
-function buildExportRows() {
-  return relations.value.map((item) => ({
-    source_table: item.source_table,
-    source_columns: Array.isArray(item.source_columns) ? item.source_columns : [],
-    target_table: item.target_table,
-    target_columns: Array.isArray(item.target_columns) ? item.target_columns : [],
-    relation_type: item.relation_type || "N:1",
-    description: item.description || "",
-    is_active: Boolean(item.is_active),
-  }));
-}
-
-function exportJson() {
-  const rows = buildExportRows();
-  downloadBlob(
-    `relations-${new Date().toISOString().slice(0, 10)}.json`,
-    JSON.stringify(rows, null, 2),
-    "application/json;charset=utf-8"
-  );
-  setNotice("已导出 JSON", "success");
-}
-
-function exportCsv() {
-  const rows = buildExportRows();
-  const headers = [
-    "source_table",
-    "source_columns",
-    "target_table",
-    "target_columns",
-    "relation_type",
-    "description",
-    "is_active",
-  ];
-  const lines = [headers.join(",")];
-  rows.forEach((row) => {
-    const line = [
-      escapeCsvCell(row.source_table),
-      escapeCsvCell(row.source_columns.join("|")),
-      escapeCsvCell(row.target_table),
-      escapeCsvCell(row.target_columns.join("|")),
-      escapeCsvCell(row.relation_type),
-      escapeCsvCell(row.description),
-      escapeCsvCell(row.is_active),
-    ].join(",");
-    lines.push(line);
-  });
-  downloadBlob(
-    `relations-${new Date().toISOString().slice(0, 10)}.csv`,
-    lines.join("\n"),
-    "text/csv;charset=utf-8"
-  );
-  setNotice("已导出 CSV", "success");
+async function exportXlsx() {
+  clearNotice();
+  try {
+    const response = await fetch(`${API_BASE}/text2sql/relation/export`);
+    if (!response.ok) {
+      const detail = await readErrorDetail(response, "导出失败");
+      throw new Error(detail);
+    }
+    const blob = await response.blob();
+    downloadBlob(
+      `relations-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      blob,
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    setNotice("已导出 XLSX", "success");
+  } catch (error) {
+    setNotice(`导出失败：${error.message}`, "error");
+  }
 }
 
 onMounted(async () => {
@@ -841,15 +668,15 @@ onMounted(async () => {
 .relation-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
 }
 
 .panel {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid var(--line);
+  border-radius: 8px;
   padding: 16px;
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+  box-shadow: none;
 }
 
 .page-header {
@@ -857,43 +684,33 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 2px 0 10px;
 }
 
 .page-header h2 {
   margin: 0;
-  font-size: 22px;
-  color: #0f172a;
+  font-size: clamp(24px, 2.7vw, 34px);
+  line-height: 1.1;
+  color: var(--text-main);
+  letter-spacing: 0;
 }
 
 .page-header p {
   margin: 6px 0 0;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 14px;
 }
 
-.quick-nav {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.quick-link {
-  text-decoration: none;
-  color: #334155;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  padding: 6px 10px;
-  font-size: 13px;
-  background: #f8fafc;
-}
-
 .notice {
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 10px 12px;
   font-size: 13px;
-  border: 1px solid #cbd5e1;
-  background: #f8fafc;
-  color: #334155;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.64);
+  color: var(--text-main);
 }
 
 .notice.success {
@@ -913,6 +730,7 @@ onMounted(async () => {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .search-wrap {
@@ -925,8 +743,6 @@ onMounted(async () => {
 .search-wrap input {
   width: 280px;
   max-width: 100%;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
   padding: 10px 12px;
 }
 
@@ -943,6 +759,7 @@ onMounted(async () => {
 .table-panel {
   padding: 0;
   overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .table-head-meta {
@@ -950,23 +767,20 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  border-bottom: 1px solid #e5e7eb;
-  background: #f8fafc;
+  border-bottom: 1px solid var(--line);
+  background: rgba(244, 244, 241, 0.62);
 }
 
 .page-size-wrap {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 13px;
 }
 
 .page-size-wrap select {
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
   padding: 6px 8px;
-  background: #fff;
 }
 
 .table-wrap {
@@ -980,44 +794,49 @@ onMounted(async () => {
 
 .relation-table th,
 .relation-table td {
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--line);
   text-align: left;
-  padding: 12px 16px;
+  padding: 13px 16px;
   font-size: 14px;
   vertical-align: top;
 }
 
 .relation-table th {
-  background: #f8fafc;
-  color: #475569;
-  font-weight: 600;
+  background: rgba(244, 244, 241, 0.66);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.relation-table tbody tr:hover td {
+  background: rgba(17, 17, 17, 0.026);
 }
 
 .summary-main {
-  color: #0f172a;
+  color: var(--text-main);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 13px;
   line-height: 1.45;
 }
 
 .summary-sub {
-  color: #64748b;
+  color: var(--text-muted);
   font-size: 12px;
   margin-top: 4px;
 }
 
 .type-chip {
   display: inline-block;
-  border: 1px solid #cbd5e1;
-  border-radius: 999px;
-  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 3px 8px;
   font-size: 12px;
-  background: #f8fafc;
-  color: #334155;
+  background: var(--surface-2);
+  color: var(--text-muted);
 }
 
 .desc-cell {
-  color: #334155;
+  color: var(--text-main);
   max-width: 300px;
 }
 
@@ -1028,7 +847,7 @@ onMounted(async () => {
 
 .empty-cell {
   text-align: center;
-  color: #64748b;
+  color: var(--text-muted);
   padding: 28px 12px;
 }
 
@@ -1038,34 +857,17 @@ onMounted(async () => {
   align-items: center;
   gap: 10px;
   padding: 12px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.62);
 }
 
 .btn-primary,
 .btn-secondary,
 .btn-ghost {
   border-radius: 8px;
-  border: 1px solid transparent;
   font-size: 13px;
   font-weight: 600;
   padding: 8px 12px;
   cursor: pointer;
-}
-
-.btn-primary {
-  background: #1d4ed8;
-  color: #fff;
-}
-
-.btn-secondary {
-  background: #0f172a;
-  color: #fff;
-}
-
-.btn-ghost {
-  background: #fff;
-  border-color: #cbd5e1;
-  color: #334155;
 }
 
 .btn-primary:disabled,
@@ -1078,8 +880,9 @@ onMounted(async () => {
 .btn-link {
   background: transparent;
   border: none;
-  color: #1d4ed8;
+  color: var(--text-main);
   font-size: 13px;
+  font-weight: 640;
   cursor: pointer;
   padding: 0;
 }
@@ -1091,7 +894,7 @@ onMounted(async () => {
 .wizard-mask {
   position: fixed;
   inset: 0;
-  background: rgba(15, 23, 42, 0.25);
+  background: rgba(18, 18, 17, 0.28);
   display: flex;
   justify-content: center;
   align-items: center;
@@ -1102,9 +905,9 @@ onMounted(async () => {
 .wizard-panel {
   width: min(860px, 100%);
   background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 14px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.14);
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  box-shadow: 0 24px 80px rgba(18, 18, 17, 0.18);
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 40px);
@@ -1115,7 +918,7 @@ onMounted(async () => {
   justify-content: space-between;
   align-items: flex-start;
   padding: 16px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--line);
 }
 
 .wizard-header h3 {
@@ -1126,14 +929,14 @@ onMounted(async () => {
 .wizard-header p {
   margin: 6px 0 0;
   font-size: 13px;
-  color: #64748b;
+  color: var(--text-muted);
 }
 
 .btn-close {
   border: none;
   background: transparent;
   font-size: 24px;
-  color: #64748b;
+  color: var(--text-muted);
   cursor: pointer;
   line-height: 1;
 }
@@ -1143,14 +946,14 @@ onMounted(async () => {
   grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   padding: 12px 16px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--line);
 }
 
 .step-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #94a3b8;
+  color: var(--text-soft);
   font-size: 12px;
 }
 
@@ -1158,7 +961,7 @@ onMounted(async () => {
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  border: 1px solid #cbd5e1;
+  border: 1px solid var(--line);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1168,13 +971,13 @@ onMounted(async () => {
 
 .step-item.active,
 .step-item.done {
-  color: #0f172a;
+  color: var(--text-main);
 }
 
 .step-item.active span,
 .step-item.done span {
-  border-color: #1d4ed8;
-  color: #1d4ed8;
+  border-color: var(--text-main);
+  color: var(--text-main);
 }
 
 .wizard-body {
@@ -1196,16 +999,13 @@ label {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: #334155;
+  color: var(--text-main);
 }
 
 select,
 textarea {
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
   padding: 10px 12px;
-  background: #fff;
-  color: #0f172a;
+  color: var(--text-main);
 }
 
 .pair-header {
@@ -1213,7 +1013,7 @@ textarea {
   justify-content: space-between;
   align-items: center;
   font-size: 13px;
-  color: #334155;
+  color: var(--text-muted);
 }
 
 .pairs {
@@ -1234,14 +1034,10 @@ textarea {
   font-weight: 700;
 }
 
-.switch-line {
-  justify-content: space-between;
-}
-
 .preview-box {
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
-  background: #f8fafc;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
   padding: 12px;
 }
 
@@ -1249,13 +1045,13 @@ textarea {
   display: block;
   margin-bottom: 6px;
   font-size: 13px;
-  color: #334155;
+  color: var(--text-muted);
 }
 
 .preview-box p {
   margin: 0;
   font-size: 13px;
-  color: #0f172a;
+  color: var(--text-main);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
@@ -1264,7 +1060,7 @@ textarea {
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 16px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--line);
 }
 
 @media (max-width: 900px) {

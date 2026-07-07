@@ -8,6 +8,7 @@ from schemas.text2sql import (
     Text2SQLConnectionPayload,
     Text2SQLConnectionResponse,
     Text2SQLConnectionTestResponse,
+    Text2SQLSchemaNamesResponse,
 )
 from services.text2sql import connection_service
 
@@ -44,3 +45,16 @@ def test_connection(payload: Text2SQLConnectionPayload, db: Session = Depends(ge
     except Exception as exc:  # noqa: BLE001
         logger.exception("test connection failed")
         raise HTTPException(status_code=400, detail="\u8fde\u63a5\u6d4b\u8bd5\u5931\u8d25\uff0c\u8bf7\u68c0\u67e5\u914d\u7f6e\u6216\u7a0d\u540e\u91cd\u8bd5") from exc
+
+
+@router.post("/schemas", response_model=Text2SQLSchemaNamesResponse)
+def list_connection_schemas(payload: Text2SQLConnectionPayload, db: Session = Depends(get_db)):
+    """列出目标业务库可选 schema（例如 SQL Server 的 dbo）。"""
+    try:
+        return Text2SQLSchemaNamesResponse(schemas=connection_service.list_schemas(db, payload))
+    except ValueError as exc:
+        logger.exception("list connection schemas validation failed")
+        raise HTTPException(status_code=400, detail="获取 schema 列表失败，请检查连接配置") from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("list connection schemas failed")
+        raise HTTPException(status_code=400, detail="获取 schema 列表失败，请检查连接配置") from exc

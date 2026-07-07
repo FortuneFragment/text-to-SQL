@@ -24,5 +24,6 @@ class Text2SQLQueryLog(Base):
     row_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     repaired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    feedback_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=None)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)

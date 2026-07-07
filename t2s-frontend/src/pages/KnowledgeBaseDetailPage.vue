@@ -5,10 +5,6 @@
         <h2>知识库文件管理</h2>
         <p>当前页面仅处理一个知识库，上传文件会固定归属到当前知识库 ID。</p>
       </div>
-      <div class="quick-nav">
-        <RouterLink to="/knowledge" class="quick-link">返回知识库列表</RouterLink>
-        <RouterLink to="/qa" class="quick-link">知识问答</RouterLink>
-      </div>
     </header>
 
     <div v-if="notice" class="notice" :class="noticeType">{{ notice }}</div>
@@ -20,7 +16,7 @@
     <section class="panel" v-else-if="!selectedKb">
       <h3>未找到知识库</h3>
       <p class="error-text">知识库 ID {{ selectedKbIdText }} 不存在或已删除，请返回列表重新选择。</p>
-      <RouterLink to="/knowledge" class="btn-primary enter-link">返回知识库列表</RouterLink>
+      <RouterLink to="/admin/text2sql/knowledge" class="btn-primary enter-link">返回知识库列表</RouterLink>
     </section>
 
     <template v-else>
@@ -29,6 +25,7 @@
           <span class="meta-tag">知识库 ID：{{ selectedKb.id }}</span>
           <span class="meta-tag">名称：{{ selectedKb.name }}</span>
           <span class="meta-tag">Collection：{{ selectedKb.collection_name }}</span>
+          <span class="meta-tag">用途：{{ usageText(selectedKb.usage) }}</span>
           <span class="meta-tag">默认切片：{{ selectedKb.default_chunk_size }} / {{ selectedKb.default_chunk_overlap }}</span>
           <span class="meta-tag" v-if="selectedKb.is_default">默认知识库</span>
         </div>
@@ -474,6 +471,13 @@ function formatBytes(size) {
   return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+function usageText(value) {
+  const usage = String(value || "table_route");
+  if (usage === "few_shot") return "Few-shot";
+  if (usage === "data_dictionary") return "数据字典";
+  return "表路由";
+}
+
 // 中文备注：处理statusText相关业务数据并返回结果。
 // 执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
 function statusText(status) {
@@ -555,16 +559,15 @@ onBeforeUnmount(() => {
 .knowledge-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
 }
 
 .panel {
-  background: var(--bg-panel);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 24px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: none;
+  padding: 18px;
 }
 
 .page-header {
@@ -573,42 +576,29 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   flex-wrap: wrap;
   gap: 16px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 2px 0 10px;
 }
 
 h2 {
   margin: 0 0 8px;
-  font-size: 22px;
-  font-weight: 700;
+  font-size: clamp(24px, 2.7vw, 34px);
+  line-height: 1.1;
+  font-weight: 720;
+  letter-spacing: 0;
 }
 
 h3 {
   margin: 0 0 16px;
-  font-size: 18px;
+  font-size: 15px;
+  font-weight: 690;
 }
 
 .header-content p {
   margin: 0;
   color: var(--text-muted);
-}
-
-.quick-nav {
-  display: flex;
-  gap: 8px;
-}
-
-.quick-link {
-  text-decoration: none;
-  padding: 6px 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
-  background: var(--accent-light);
-}
-
-.quick-link:hover {
-  background: var(--accent);
-  color: #fff;
 }
 
 .loading-text {
@@ -618,6 +608,8 @@ h3 {
 
 .info-panel {
   padding-bottom: 14px;
+  background: transparent;
+  border-style: dashed;
 }
 
 .form-grid {
@@ -631,7 +623,7 @@ label {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 620;
 }
 
 label span {
@@ -640,17 +632,7 @@ label span {
 
 input,
 textarea {
-  border: 1px solid var(--line);
-  border-radius: 8px;
   padding: 10px 12px;
-  background: #fff;
-}
-
-input:focus,
-textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-light);
-  outline: none;
 }
 
 .span-2 {
@@ -676,8 +658,6 @@ textarea:focus {
 }
 
 button {
-  border: none;
-  border-radius: 8px;
   padding: 10px 14px;
   font-size: 13px;
   font-weight: 600;
@@ -689,56 +669,27 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.btn-primary {
-  background: var(--accent);
-  color: #fff;
-}
-
-.btn-primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-
 .enter-link {
   display: inline-flex;
   align-items: center;
   text-decoration: none;
 }
 
-.btn-outline {
-  border: 1px solid var(--accent);
-  background: transparent;
-  color: var(--accent);
-}
-
-.btn-outline:hover:not(:disabled) {
-  background: var(--accent-light);
-}
-
-.btn-ghost {
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--text-main);
-}
-
-.btn-ghost:hover:not(:disabled) {
-  background: #f1f5f9;
-}
-
 .btn-danger {
-  background: #fee2e2;
-  color: #991b1b;
+  background: #fff7f6;
+  color: var(--error);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #ef4444;
-  color: #fff;
+  background: #fff1f0;
+  color: var(--error);
 }
 
 .notice {
   padding: 12px 16px;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 500;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 560;
 }
 
 .notice.success {
@@ -763,6 +714,9 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .list-header {
@@ -771,6 +725,9 @@ button:disabled {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(244, 244, 241, 0.62);
 }
 
 .list-tools {
@@ -782,8 +739,9 @@ button:disabled {
 .meta-tag {
   font-size: 12px;
   padding: 4px 8px;
-  border-radius: 999px;
-  background: #f1f5f9;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
   color: var(--text-muted);
 }
 
@@ -799,23 +757,30 @@ button:disabled {
 
 .file-table th,
 .file-table td {
-  border-bottom: 1px solid #e2e8f0;
-  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 14px;
   text-align: left;
   vertical-align: top;
   font-size: 13px;
 }
 
 .file-table th {
-  background: #f8fafc;
+  background: rgba(244, 244, 241, 0.68);
   color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.file-table tbody tr:hover td {
+  background: rgba(17, 17, 17, 0.026);
 }
 
 .status-badge {
   display: inline-block;
   font-size: 12px;
   padding: 3px 8px;
-  border-radius: 999px;
+  border-radius: 7px;
+  border: 1px solid transparent;
 }
 
 .status-badge.pending {
@@ -894,10 +859,10 @@ button:disabled {
 }
 
 .chunk-item {
-  border: 1px solid #e2e8f0;
-  border-radius: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
   padding: 12px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.62);
 }
 
 .chunk-item header {

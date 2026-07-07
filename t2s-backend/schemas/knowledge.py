@@ -1,15 +1,19 @@
 ﻿from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
+from core.knowledge_usage import KB_USAGE_TABLE_ROUTE
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+KnowledgeBaseUsage = Literal["table_route", "few_shot", "data_dictionary"]
 
 
 class KnowledgeBaseCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     description: str = Field(default="", max_length=2000)
     collection_name: Optional[str] = Field(default=None, max_length=128)
+    usage: KnowledgeBaseUsage = KB_USAGE_TABLE_ROUTE
     default_chunk_size: int = Field(default=800, ge=100, le=8000)
     default_chunk_overlap: int = Field(default=120, ge=0, le=2000)
     embedding_model: Optional[str] = Field(default=None, max_length=128)
@@ -25,6 +29,7 @@ class KnowledgeBaseUpdateRequest(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=128)
     description: Optional[str] = Field(default=None, max_length=2000)
     collection_name: Optional[str] = Field(default=None, max_length=128)
+    usage: Optional[KnowledgeBaseUsage] = None
     default_chunk_size: Optional[int] = Field(default=None, ge=100, le=8000)
     default_chunk_overlap: Optional[int] = Field(default=None, ge=0, le=2000)
     embedding_model: Optional[str] = Field(default=None, max_length=128)
@@ -46,6 +51,7 @@ class KnowledgeBaseResponse(BaseModel):
     name: str
     description: str = ""
     collection_name: str
+    usage: KnowledgeBaseUsage = KB_USAGE_TABLE_ROUTE
     default_chunk_size: int
     default_chunk_overlap: int
     embedding_model: Optional[str] = None

@@ -1,40 +1,54 @@
 from __future__ import annotations
 
+import logging
 import socket
 import time
 from typing import Callable
 
+from elasticsearch import Elasticsearch
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from core.config import settings
 
+logger = logging.getLogger(__name__)
 
-def _retry_until_ready(name: str, checker: Callable[[], None], interval_seconds: int) -> None:
-    """中文备注：处理_retry_until_ready相关业务数据并返回结果。
-    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-    """
+
+def _retry_until_ready(
+    name: str,
+    checker: Callable[[], None],
+    interval_seconds: int,
+    timeout_seconds: int,
+) -> None:
+    interval = max(1, int(interval_seconds or 1))
+    timeout = max(1, int(timeout_seconds or 1))
+    deadline = time.monotonic() + timeout
+    attempt = 0
     while True:
+        attempt += 1
         try:
             checker()
             return
         except Exception as exc:  # noqa: BLE001
-            print(f"[startup] waiting for {name} ... {exc}")
-            time.sleep(max(1, interval_seconds))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError(f"{name} is not ready after {timeout} seconds") from exc
+            logger.info(
+                "[startup] waiting for %s (attempt=%s, remaining=%.1fs): %s",
+                name,
+                attempt,
+                remaining,
+                exc,
+            )
+            time.sleep(min(interval, max(0.1, remaining)))
 
 
 def _check_mysql(engine: Engine) -> None:
-    """中文备注：处理_check_mysql相关业务数据并返回结果。
-    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-    """
     with engine.connect() as conn:
         conn.execute(text("SELECT 1"))
 
 
 def _read_redis_line(sock: socket.socket) -> bytes:
-    """中文备注：处理_read_redis_line相关业务数据并返回结果。
-    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-    """
     data = b""
     while not data.endswith(b"\r\n"):
         chunk = sock.recv(1)
@@ -45,9 +59,6 @@ def _read_redis_line(sock: socket.socket) -> bytes:
 
 
 def _send_redis_command(sock: socket.socket, *parts: str) -> bytes:
-    """中文备注：处理_send_redis_command相关业务数据并返回结果。
-    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-    """
     payload = f"*{len(parts)}\r\n".encode("utf-8")
     for part in parts:
         binary = part.encode("utf-8")
@@ -57,9 +68,6 @@ def _send_redis_command(sock: socket.socket, *parts: str) -> bytes:
 
 
 def _check_redis(host: str, port: int, password: str) -> None:
-    """中文备注：处理_check_redis相关业务数据并返回结果。
-    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-    """
     with socket.create_connection((host, port), timeout=3) as sock:
         if password:
             auth_reply = _send_redis_command(sock, "AUTH", password)
@@ -71,9 +79,6 @@ def _check_redis(host: str, port: int, password: str) -> None:
 
 
 def _parse_host_port(endpoint: str, default_port: int) -> tuple[str, int]:
-    """中文备注：处理_parse_host_port相关业务数据并返回结果。
-    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-    """
     raw = str(endpoint or "").strip()
     if not raw:
         raise ValueError("endpoint is empty")
@@ -84,23 +89,27 @@ def _parse_host_port(endpoint: str, default_port: int) -> tuple[str, int]:
 
 
 def _check_tcp(host: str, port: int, timeout: int = 3) -> None:
-    """中文备注：处理_check_tcp相关业务数据并返回结果。
-    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-    """
     with socket.create_connection((host, port), timeout=timeout):
         return
 
 
+def _check_elasticsearch() -> None:
+    client = Elasticsearch(
+        settings.EFFECTIVE_ES_URL,
+        request_timeout=settings.ES_REQUEST_TIMEOUT_SECONDS,
+    )
+    if not client.ping():
+        raise RuntimeError(f"elasticsearch ping failed: {settings.EFFECTIVE_ES_URL}")
+
+
 def wait_for_docker_middlewares(system_engine: Engine) -> list[str]:
-    """中文备注：处理wait_for_docker_middlewares相关业务数据并返回结果。
-    执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
-    """
     if not settings.STARTUP_WAIT_ENABLED:
         return []
 
     wait_interval = settings.STARTUP_WAIT_INTERVAL_SECONDS
+    wait_timeout = settings.STARTUP_WAIT_TIMEOUT_SECONDS
 
-    _retry_until_ready("mysql(system)", lambda: _check_mysql(system_engine), wait_interval)
+    _retry_until_ready("mysql(system)", lambda: _check_mysql(system_engine), wait_interval, wait_timeout)
     _retry_until_ready(
         "redis",
         lambda: _check_redis(
@@ -109,6 +118,7 @@ def wait_for_docker_middlewares(system_engine: Engine) -> list[str]:
             password=settings.REDIS_PASSWORD,
         ),
         wait_interval,
+        wait_timeout,
     )
 
     connected = [
@@ -116,13 +126,9 @@ def wait_for_docker_middlewares(system_engine: Engine) -> list[str]:
         f"redis({settings.REDIS_HOST}:{settings.REDIS_PORT})",
     ]
 
-    if settings.STARTUP_WAIT_MILVUS:
-        _retry_until_ready(
-            "milvus",
-            lambda: _check_tcp(settings.MILVUS_HOST, int(settings.MILVUS_PORT)),
-            wait_interval,
-        )
-        connected.append(f"milvus({settings.MILVUS_HOST}:{settings.MILVUS_PORT})")
+    if settings.STARTUP_WAIT_ES:
+        _retry_until_ready("elasticsearch", _check_elasticsearch, wait_interval, wait_timeout)
+        connected.append(f"elasticsearch({settings.EFFECTIVE_ES_URL})")
 
     if settings.STARTUP_WAIT_MINIO:
         minio_host, minio_port = _parse_host_port(settings.MINIO_ENDPOINT, 9000)
@@ -130,6 +136,7 @@ def wait_for_docker_middlewares(system_engine: Engine) -> list[str]:
             "minio",
             lambda: _check_tcp(minio_host, minio_port),
             wait_interval,
+            wait_timeout,
         )
         connected.append(f"minio({settings.MINIO_ENDPOINT})")
 

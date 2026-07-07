@@ -5,7 +5,8 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from core.config import settings
-from schemas.task import TaskStatusResponse, TaskSubmitResponse
+from schemas.task import TaskStatusResponse
+from schemas.task import TaskSubmitResponse
 from tasks.celery_app import celery_app
 from tasks.document_tasks import process_document_task, reprocess_document_task
 
@@ -18,6 +19,10 @@ def _ensure_task_feature_enabled() -> None:
         raise HTTPException(status_code=400, detail="Knowledge task feature is disabled")
     if str(settings.KB_ASYNC_BACKEND).lower() != "celery":
         raise HTTPException(status_code=400, detail="Only celery async backend is currently supported")
+
+
+def _format_task_error(error: object) -> str:
+    return "任务执行失败，请稍后重试"
 
 
 @router.post("/file/{file_id}/process", response_model=TaskSubmitResponse)
@@ -53,5 +58,5 @@ def get_task_status(task_id: str):
 
     payload.successful = False
     logger.error("task failed: task_id=%s state=%s error=%r", task_id, result.state, result.result)
-    payload.error = "\u4efb\u52a1\u6267\u884c\u5931\u8d25\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5"
+    payload.error = _format_task_error(result.result)
     return payload

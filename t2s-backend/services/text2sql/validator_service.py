@@ -4,6 +4,8 @@ import re
 
 from sqlglot import exp, parse_one
 
+from services.text2sql.sql_dialect import INTERNAL_SQLGLOT_DIALECT
+
 _DANGEROUS_KEYWORDS = re.compile(
     r"\b(DROP|DELETE|TRUNCATE|ALTER|INSERT|UPDATE|CREATE|REPLACE|GRANT|REVOKE|EXEC|EXECUTE)\b",
     re.IGNORECASE,
@@ -16,7 +18,7 @@ class Text2SQLValidatorService:
     @staticmethod
     def normalize_identifier(value: str | None) -> str:
         """标准化标识符，便于大小写无关比较。"""
-        return (value or "").strip().strip("`").strip('"').lower()
+        return (value or "").strip().strip("`").strip('"').replace("[", "").replace("]", "").lower()
 
     @staticmethod
     def normalize_table_identifier(value: str | None) -> str:
@@ -272,7 +274,7 @@ class Text2SQLValidatorService:
         if len(statements) != 1:
             return False, "不允许执行多条 SQL 语句"
         try:
-            tree = parse_one(statements[0], read="mysql")
+            tree = parse_one(statements[0], read=INTERNAL_SQLGLOT_DIALECT)
         except Exception as error:  # noqa: BLE001
             return False, f"SQL 解析失败: {error}"
         if not isinstance(tree, exp.Select):

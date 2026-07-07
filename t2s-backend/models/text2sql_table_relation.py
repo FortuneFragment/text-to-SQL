@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, String, Text, UniqueConstraint, func
+from sqlalchemy import DateTime, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from models.base import Base
@@ -36,7 +36,6 @@ class Text2SQLTableRelation(Base):
 
     relation_type: Mapped[str] = mapped_column(String(16), nullable=False, default="N:1")
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

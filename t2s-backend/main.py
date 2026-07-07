@@ -2,6 +2,7 @@
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 from api.v1.text2sql import router as text2sql_router
+from api.v1.text2sql_model_config import compat_router as model_config_compat_router
 from core.config import settings
 from core.database import engine
 from core.startup_waiter import wait_for_docker_middlewares
@@ -37,4 +38,5 @@ def health() -> dict:
     }
 
 app.include_router(text2sql_router, prefix=settings.API_V1_STR)
+app.include_router(model_config_compat_router, prefix=settings.API_V1_STR)
 

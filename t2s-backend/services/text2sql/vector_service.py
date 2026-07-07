@@ -8,10 +8,11 @@ from collections import defaultdict
 from sqlalchemy.orm import Session
 
 from core.config import settings
+from core.knowledge_usage import KB_USAGE_TABLE_ROUTE
 from models.knowledge_file import KnowledgeFile
 from repositories.knowledge_base_repo import KnowledgeBaseRepository
-from repositories.milvus_repo import milvus_repo
-from services.embeddings import get_embeddings
+from repositories.es_repo import es_repo
+from services.embeddings import get_embedding_vector_dim, get_embeddings
 
 _logger = logging.getLogger("text2sql.vector")
 _TABLE_TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9_]+|[\u4e00-\u9fff]+")
@@ -123,22 +124,17 @@ class Text2SQLVectorService:
 
         explicit_kb_id = self._safe_positive_int(requested_kb_id)
         if explicit_kb_id:
-            kb = repo.get_by_id(explicit_kb_id)
+            kb = repo.get_by_id_for_usage(explicit_kb_id, KB_USAGE_TABLE_ROUTE)
             if kb is not None:
                 return explicit_kb_id, kb
 
         configured_kb_id = self._safe_positive_int(self.kb_id)
         if configured_kb_id:
-            kb = repo.get_by_id(configured_kb_id)
+            kb = repo.get_by_id_for_usage(configured_kb_id, KB_USAGE_TABLE_ROUTE)
             if kb is not None:
                 return configured_kb_id, kb
 
-        default_kb = repo.get_default()
-        if default_kb is not None and self._safe_positive_int(getattr(default_kb, "id", None)):
-            return int(default_kb.id), default_kb
-
-        all_kbs = repo.list_all()
-        for kb in all_kbs:
+        for kb in repo.list_by_usage(KB_USAGE_TABLE_ROUTE):
             resolved_id = self._safe_positive_int(getattr(kb, "id", None))
             if resolved_id:
                 return resolved_id, kb
@@ -176,10 +172,10 @@ class Text2SQLVectorService:
             return {}
 
         try:
-            query_vector = list(get_embeddings().embed_query(question_text) or [])
+            query_vector = list(get_embeddings(db).embed_query(question_text) or [])
             if not query_vector:
                 return {}
-            expected_dim = int(settings.MILVUS_VECTOR_DIM)
+            expected_dim = int(get_embedding_vector_dim(db))
             if len(query_vector) != expected_dim:
                 _logger.warning(
                     "Vector dim mismatch for routing: expected=%s actual=%s",
@@ -189,8 +185,8 @@ class Text2SQLVectorService:
                 return {}
 
             query_limit = max(int(top_k) * 8, 40)
-            raw_hits = milvus_repo.search_chunks(
-                collection_name=collection_name,
+            raw_hits = es_repo.search_chunks(
+                index_name=collection_name,
                 vector_dim=expected_dim,
                 kb_id=active_kb_id,
                 query_vector=query_vector,

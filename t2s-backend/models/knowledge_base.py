@@ -4,6 +4,7 @@ from typing import Optional
 from sqlalchemy import Boolean, DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from core.knowledge_usage import KB_USAGE_TABLE_ROUTE
 from models.base import Base
 
 
@@ -14,6 +15,7 @@ class KnowledgeBase(Base):
     name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     collection_name: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    usage: Mapped[str] = mapped_column("usage_type", String(32), nullable=False, default=KB_USAGE_TABLE_ROUTE)
 
     default_chunk_size: Mapped[int] = mapped_column(Integer, nullable=False, default=800)
     default_chunk_overlap: Mapped[int] = mapped_column(Integer, nullable=False, default=120)

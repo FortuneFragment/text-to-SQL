@@ -1,15 +1,22 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 
 from sqlalchemy.orm import Session
 
 from core.config import settings
-from core.milvus_name import normalize_collection_name
+from core.es_index_name import normalize_index_name
+from core.knowledge_usage import (
+    KB_USAGE_FEW_SHOT,
+    KB_USAGE_TABLE_ROUTE,
+    normalize_kb_usage,
+)
 from models.knowledge_base import KnowledgeBase
 from repositories.knowledge_base_repo import KnowledgeBaseRepository
 from repositories.knowledge_file_repo import KnowledgeFileRepository
+from repositories.es_repo import es_repo
 from schemas.knowledge import KnowledgeBaseCreateRequest, KnowledgeBaseUpdateRequest
+from services.embeddings import get_active_embedding_model_name
 
 
 class KnowledgeService:
@@ -42,7 +49,7 @@ class KnowledgeService:
         reserved = {str(item.collection_name) for item in rows}
         for entity in rows:
             original = str(entity.collection_name)
-            normalized = normalize_collection_name(original)
+            normalized = normalize_index_name(original)
             if normalized == original:
                 continue
 
@@ -60,10 +67,11 @@ class KnowledgeService:
         return KnowledgeBase(
             name="默认知识库",
             description="系统默认知识库",
-            collection_name=normalize_collection_name(settings.MILVUS_COLLECTION),
+            collection_name=normalize_index_name(settings.ES_INDEX_NAME),
+            usage=KB_USAGE_TABLE_ROUTE,
             default_chunk_size=int(settings.KB_CHUNK_SIZE),
             default_chunk_overlap=int(settings.KB_CHUNK_OVERLAP),
-            embedding_model=str(settings.EMBEDDING_MODEL or "").strip() or None,
+            embedding_model=get_active_embedding_model_name(),
             is_default=True,
             is_deleted=False,
         )
@@ -73,17 +81,57 @@ class KnowledgeService:
         执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
         """
         repo = KnowledgeBaseRepository(db)
-        current_default = repo.get_default()
+        current_default = repo.get_default(usage=KB_USAGE_TABLE_ROUTE)
         if current_default is not None:
             return current_default
 
-        rows = repo.list_all()
+        rows = repo.list_by_usage(KB_USAGE_TABLE_ROUTE)
         if rows:
             first = rows[0]
+            repo.clear_default_flag()
             first.is_default = True
+            first.usage = KB_USAGE_TABLE_ROUTE
             return repo.update(first)
 
+        if repo.list_all():
+            repo.clear_default_flag()
         return repo.create(self._build_default_kb())
+
+    def ensure_kb_for_usage(self, db: Session, usage: str) -> KnowledgeBase:
+        """Return the first active KB for a usage, creating a system one if none exists."""
+        normalized_usage = normalize_kb_usage(usage)
+        if normalized_usage == KB_USAGE_TABLE_ROUTE:
+            return self.ensure_default_kb(db)
+
+        repo = KnowledgeBaseRepository(db)
+        self._repair_legacy_collection_names(repo)
+        rows = repo.list_by_usage(normalized_usage)
+        if rows:
+            return rows[0]
+
+        name_map = {
+            KB_USAGE_FEW_SHOT: "默认 few-shot 知识库",
+        }
+        collection_map = {
+            KB_USAGE_FEW_SHOT: "text2sql_few_shot",
+        }
+        used_names = {item.collection_name for item in repo.list_all()}
+        collection_name = self._dedupe_collection_name(
+            normalize_index_name(collection_map.get(normalized_usage, f"text2sql_{normalized_usage}")),
+            used_names,
+        )
+        entity = KnowledgeBase(
+            name=name_map.get(normalized_usage, f"默认 {normalized_usage} 知识库"),
+            description=f"系统自动创建的 {normalized_usage} 用途知识库",
+            collection_name=collection_name,
+            usage=normalized_usage,
+            default_chunk_size=int(settings.KB_CHUNK_SIZE),
+            default_chunk_overlap=int(settings.KB_CHUNK_OVERLAP),
+            embedding_model=get_active_embedding_model_name(db),
+            is_default=False,
+            is_deleted=False,
+        )
+        return repo.create(entity)
 
     def list_kbs(self, db: Session) -> list[KnowledgeBase]:
         """中文备注：处理list_kbs相关业务数据并返回结果。
@@ -101,7 +149,7 @@ class KnowledgeService:
         repo = KnowledgeBaseRepository(db)
         self._repair_legacy_collection_names(repo)
 
-        collection_name = normalize_collection_name(
+        collection_name = normalize_index_name(
             payload.collection_name or f"{payload.name}_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}"
         )
         used_names = {item.collection_name for item in repo.list_all()}
@@ -111,6 +159,7 @@ class KnowledgeService:
             name=str(payload.name).strip(),
             description=str(payload.description or "").strip(),
             collection_name=collection_name,
+            usage=normalize_kb_usage(payload.usage),
             default_chunk_size=int(payload.default_chunk_size),
             default_chunk_overlap=int(payload.default_chunk_overlap),
             embedding_model=(str(payload.embedding_model).strip() if payload.embedding_model else None),
@@ -139,9 +188,11 @@ class KnowledgeService:
         if payload.description is not None:
             entity.description = str(payload.description).strip()
         if payload.collection_name is not None:
-            normalized = normalize_collection_name(payload.collection_name)
+            normalized = normalize_index_name(payload.collection_name)
             used_names = {item.collection_name for item in repo.list_all() if int(item.id) != int(entity.id)}
             entity.collection_name = self._dedupe_collection_name(normalized, used_names)
+        if payload.usage is not None:
+            entity.usage = normalize_kb_usage(payload.usage)
 
         if payload.default_chunk_size is not None:
             entity.default_chunk_size = int(payload.default_chunk_size)
@@ -175,6 +226,10 @@ class KnowledgeService:
         if total > 0:
             raise ValueError("Please delete files in this knowledge base before deleting it")
 
+        try:
+            es_repo.delete_index(entity.collection_name)
+        except Exception:
+            pass
         repo.soft_delete(entity)
         self.ensure_default_kb(db)
 

@@ -1,4 +1,12 @@
-﻿from __future__ import annotations
+﻿"""Text2SQL SQL 生成服务。
+
+负责把「自然语言问题 + 实时表结构 + 业务约束 + 关系白名单 + few-shot 样例 + 多轮上下文」
+组装进提示词，调用大模型生成「单条 SELECT」SQL，并对模型输出做清洗（去 markdown、补分号）。
+提示词中的硬性规则约束了模型行为：禁止臆造表/字段、禁止 UNION/多语句、禁止表别名、
+优先参考字段注释选字段等，从源头降低生成出错与越权的概率。
+"""
+
+from __future__ import annotations
 
 import re
 from typing import Any, Callable
@@ -14,17 +22,28 @@ _GENERATE_SQL_PROMPT = ChatPromptTemplate.from_messages([
     (
         "system",
         (
-            "你是学校数据查询助手，负责将自然语言问题转换为 SQL 查询。\n\n"
+            "你是学校数据查询助手，负责将自然语言问题转换为 SQL Server T-SQL 查询。\n\n"
             "硬性规则：\n"
             "1. 只能输出一条 SELECT 语句。\n"
             "2. 表名和字段必须来自 schema_json，禁止臆造。\n"
             "3. 严禁使用 UNION 和多语句。\n"
             "4. 当问题信息不足时，优先忽略无法确认的条件，不要猜字段。\n"
-            "5. 明细查询建议补 LIMIT；统计聚合查询（如 COUNT/SUM/AVG）可不加 LIMIT。\n"
+            "5. 明细查询使用 TOP 限制返回行数；统计聚合查询（如 COUNT/SUM/AVG）可不加 TOP。\n"
             "6. 仅输出 SQL 本身，不要解释，不要 markdown。\n"
-            "7. 若用户问“有哪些/列表/明细”，优先返回可读的关键字段，不要只返回单个编码类字段。\n"
-            "8. 字段注释（comment）描述了字段业务含义，请优先参考注释选择字段和条件值。\n"
-            "9. 注意字段类型：TINYINT 条件值用数字，VARCHAR 条件值用字符串。\n\n"
+            "7. 明细/列表/名单/记录/信息类查询必须返回多列可读业务字段；"
+            "除非用户明确只要某一个字段，否则表内字段足够时至少选择 4 个字段。\n"
+            "8. 优先选择名称、标题、编号、类别、状态、时间、分数/金额等可读字段；"
+            "不要只返回 ID/CODE/NO 等单个编码类字段。\n"
+            "9. 统计聚合查询必须同时返回分组维度字段和指标字段，不要只返回聚合值。\n"
+            "10. 字段注释（comment）描述了字段业务含义，请优先参考注释选择字段和条件值。\n"
+            "11. 注意字段类型：TINYINT 条件值用数字，VARCHAR 条件值用字符串。\n"
+            "12. 严禁使用表别名（例如 a、t1、l、x），所有字段必须使用完整表名.字段名。\n\n"
+            "V808 语义层规则：\n"
+            "1. 同一实体同时存在 X_NAME 与 X_ID/X_CODE 字段时，展示和文本过滤优先用 X_NAME。\n"
+            "2. 人员关联优先按 ACCOUNT/职工号等稳定账号字段匹配，不要为了姓名条件强行 JOIN 人员表。\n"
+            "3. 若 schema_json 中存在能直接回答复杂业务域的 V_* 视图，优先使用视图，避免自行拼接多态 UNION。\n"
+            "4. 如果表结构或提示词约定了有效记录过滤（如 checkStatus='2'、delete_flag='0'），在不冲突时应加上。\n\n"
+            "多轮对话历史（用于理解指代和延续上一问，若与当前问题无关可忽略）：\n{conversation_context}\n\n"
             "关系约束模式：\n{relation_mode_instructions}\n\n"
             "可用关系白名单（仅在多表模式下可用）：\n{relation_hints_text}\n\n"
             "允许查询的表：\n{allowed_tables_text}\n\n"
@@ -56,6 +75,11 @@ class Text2SQLGeneratorService:
 
     @staticmethod
     def _build_relation_prompt_context(relation_hints: list[dict]) -> tuple[str, str]:
+        """根据关系白名单生成（关系约束说明, 关系白名单文本）二元组。
+
+        无关系提示 → 单表模式（禁止 JOIN）；有合法关系 → 多表按需模式，
+        并把每条关系格式化为「源表.列 = 目标表.列」的可读约束，供模型按白名单 JOIN。
+        """
         if not relation_hints:
             return (
                 "当前为单表模式：你必须只使用一张表，禁止使用 JOIN。",
@@ -102,6 +126,7 @@ class Text2SQLGeneratorService:
         """基于问题、候选表和 Schema 生成 SQL。"""
         selected_tables = runtime_config.get("selected_tables") or []
         prompt_hint = runtime_config.get("prompt_hint") or "（无）"
+        conversation_context = runtime_config.get("conversation_context") or "（无）"
         few_shot_examples = runtime_config.get("few_shot_examples") or "（暂无历史参考）"
         relation_hints = runtime_config.get("relation_hints") or []
         queryable_columns_map = runtime_config.get("queryable_columns_map")
@@ -114,6 +139,7 @@ class Text2SQLGeneratorService:
             db,
             selected_tables,
             queryable_columns_map=queryable_columns_map,
+            question=question,
         )
         relation_mode_instructions, relation_hints_text = self._build_relation_prompt_context(relation_hints)
         chain = _GENERATE_SQL_PROMPT | model | StrOutputParser()
@@ -125,6 +151,7 @@ class Text2SQLGeneratorService:
                 "relation_mode_instructions": relation_mode_instructions,
                 "relation_hints_text": relation_hints_text,
                 "prompt_hint": prompt_hint,
+                "conversation_context": conversation_context,
                 "few_shot_examples": few_shot_examples,
             }
         )

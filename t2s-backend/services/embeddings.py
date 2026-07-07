@@ -6,7 +6,9 @@ import re
 from typing import Protocol
 
 from core.config import settings
+from core.url_utils import normalize_embedding_base_url
 from services.custom_e5_embeddings import CustomE5Embeddings
+from services.model_config_service import MODEL_KIND_EMBEDDING, model_config_service
 
 
 class EmbeddingProvider(Protocol):
@@ -51,24 +53,70 @@ class DeterministicEmbeddings:
 
 
 _embedding_instance: EmbeddingProvider | None = None
+_embedding_cache_key = ""
+_embedding_vector_dim: int | None = None
+_embedding_vector_dim_cache_key = ""
 
 
-def get_embeddings() -> EmbeddingProvider:
-    global _embedding_instance
-    if _embedding_instance is not None:
+def reset_embeddings() -> None:
+    global _embedding_instance, _embedding_cache_key, _embedding_vector_dim, _embedding_vector_dim_cache_key
+    _embedding_instance = None
+    _embedding_cache_key = ""
+    _embedding_vector_dim = None
+    _embedding_vector_dim_cache_key = ""
+
+
+def get_embedding_vector_dim(db=None) -> int:
+    global _embedding_vector_dim, _embedding_vector_dim_cache_key
+
+    runtime = model_config_service.get_active_runtime_config(MODEL_KIND_EMBEDDING, db=db)
+    if runtime is not None and runtime.vector_dim:
+        return int(runtime.vector_dim)
+    if runtime is not None:
+        cache_key = runtime.cache_key
+        if _embedding_vector_dim is not None and _embedding_vector_dim_cache_key == cache_key:
+            return int(_embedding_vector_dim)
+
+        vector = get_embeddings(db).embed_query("dimension probe")
+        dim = len(vector or [])
+        if dim <= 0:
+            raise RuntimeError("无法自动检测 Embedding 维度，请检查模型配置")
+        _embedding_vector_dim = int(dim)
+        _embedding_vector_dim_cache_key = cache_key
+        return int(_embedding_vector_dim)
+    return int(settings.ES_VECTOR_DIM)
+
+
+def get_active_embedding_model_name(db=None) -> str | None:
+    return model_config_service.get_active_model_name(MODEL_KIND_EMBEDDING, db=db)
+
+
+def get_embeddings(db=None) -> EmbeddingProvider:
+    global _embedding_instance, _embedding_cache_key
+
+    runtime = model_config_service.get_active_runtime_config(MODEL_KIND_EMBEDDING, db=db)
+    if runtime is not None:
+        cache_key = runtime.cache_key
+        if _embedding_instance is not None and _embedding_cache_key == cache_key:
+            return _embedding_instance
+        _embedding_instance = CustomE5Embeddings(
+            api_base=normalize_embedding_base_url(runtime.base_url),
+            api_key=runtime.api_key,
+            model=runtime.model_name,
+            timeout=int(runtime.timeout_seconds),
+            batch_size=int(runtime.batch_size or 32),
+            verify_ssl=bool(runtime.verify_ssl),
+            ca_bundle=runtime.ca_bundle or None,
+            max_retries=int(runtime.max_retries),
+            retry_backoff_seconds=float(runtime.retry_backoff_seconds),
+            trust_env=bool(runtime.trust_env),
+        )
+        _embedding_cache_key = cache_key
         return _embedding_instance
 
-    base_url = str(settings.EMBEDDING_BASE_URL or "").strip()
-    model = str(settings.EMBEDDING_MODEL or "").strip()
-
-    if base_url and model:
-        _embedding_instance = CustomE5Embeddings(
-            api_base=base_url,
-            api_key=str(settings.EMBEDDING_API_KEY or "").strip(),
-            model=model,
-            timeout=int(settings.EMBEDDING_TIMEOUT_SECONDS),
-        )
-    else:
-        _embedding_instance = DeterministicEmbeddings(dim=int(settings.MILVUS_VECTOR_DIM))
-
+    cache_key = f"deterministic|{int(settings.ES_VECTOR_DIM)}"
+    if _embedding_instance is not None and _embedding_cache_key == cache_key:
+        return _embedding_instance
+    _embedding_instance = DeterministicEmbeddings(dim=int(settings.ES_VECTOR_DIM))
+    _embedding_cache_key = cache_key
     return _embedding_instance

@@ -1,4 +1,14 @@
-﻿from __future__ import annotations
+﻿"""Text2SQL 枚举值提示服务（增强能力，按 TEXT2SQL_ENUM_HINT_ENABLED 开关启用）。
+
+针对候选表中「像枚举」的字段（varchar/char/tinyint，排除主键与各类 *_id），到业务库抽样
+其高频取值，作为 enum_hints_json 追加进生成提示词。这样模型写过滤条件时能用真实取值
+（如 status='已完成' 而非臆造的 '完成'），显著降低「SQL 合法但查不到数据」的情况。
+
+工程上做了多重保护：多列并发探测、单列设置最大执行时间、按提示词字符上限自动裁剪，
+任何异常或超时都安全退回原始提示词（degraded），并打点记录探测/命中/超时情况。
+"""
+
+from __future__ import annotations
 
 import json
 import logging
@@ -12,8 +22,10 @@ from sqlalchemy.orm import Session
 
 from core.config import settings
 from services.text2sql.schema_service import Text2SQLSchemaService
-
-_ENUM_HINT_KEYWORDS = ("status", "state", "type", "level", "gender", "category")
+from services.text2sql.sql_dialect import (
+    DB_TYPE_SQLSERVER,
+    normalize_db_type,
+)
 
 
 class Text2SQLEnumHintService:
@@ -23,10 +35,21 @@ class Text2SQLEnumHintService:
         self,
         engine_provider: Callable[[Session], Engine],
         schema_service: Text2SQLSchemaService,
+        db_type_provider: Callable[[Session], str] | None = None,
     ):
         self._engine_provider = engine_provider
         self._schema_service = schema_service
+        self._db_type_provider = db_type_provider
         self._logger = logging.getLogger("text2sql.console")
+
+    def _resolve_db_type(self, db: Session) -> str:
+        """解析当前连接库类型；无提供器或失败时回退 MySQL。"""
+        if self._db_type_provider is None:
+            return DB_TYPE_SQLSERVER
+        try:
+            return normalize_db_type(self._db_type_provider(db))
+        except Exception:  # noqa: BLE001
+            return DB_TYPE_SQLSERVER
 
     @staticmethod
     def _normalize_identifier(value: str | None) -> str:
@@ -44,13 +67,14 @@ class Text2SQLEnumHintService:
 
     @classmethod
     def _is_enum_candidate_type(cls, type_name: str | None) -> bool:
+        # 覆盖 MySQL 与 SQL Server 的「像枚举」类型：n/var/char 文本、tinyint、SQL Server 的 bit。
         normalized = cls._normalize_type_name(type_name)
-        return normalized in {"varchar", "char", "tinyint"}
+        return normalized in {"varchar", "char", "tinyint", "nvarchar", "nchar", "bit"}
 
     @classmethod
     def _is_text_like_type(cls, type_name: str | None) -> bool:
         normalized = cls._normalize_type_name(type_name)
-        return normalized in {"varchar", "char"}
+        return normalized in {"varchar", "char", "nvarchar", "nchar"}
 
     @classmethod
     def _is_id_column(cls, column_name: str) -> bool:
@@ -59,20 +83,8 @@ class Text2SQLEnumHintService:
 
     @staticmethod
     def _quote_identifier(identifier: str) -> str:
-        safe = str(identifier or "").replace("`", "``")
-        return f"`{safe}`"
-
-    @classmethod
-    def _column_priority(cls, column_name: str, type_name: str | None) -> int:
-        normalized_name = cls._normalize_identifier(column_name)
-        normalized_type = cls._normalize_type_name(type_name)
-        score = 0
-        if normalized_type == "tinyint":
-            score += 10
-        for index, keyword in enumerate(_ENUM_HINT_KEYWORDS):
-            if keyword in normalized_name:
-                score += 100 - index
-        return score
+        parts = [part.strip("[]") for part in str(identifier or "").split(".") if part.strip()]
+        return ".".join(f"[{part.replace(']', ']]')}]" for part in parts)
 
     @classmethod
     def _select_probe_columns(
@@ -81,6 +93,7 @@ class Text2SQLEnumHintService:
         *,
         max_columns: int,
     ) -> list[dict[str, Any]]:
+        """从表字段中挑选「值得探测枚举值」的列：枚举候选类型、且排除主键与 id/*_id 列。"""
         candidates: list[dict[str, Any]] = []
         for column in columns:
             column_name = str(column.get("name") or "").strip()
@@ -93,18 +106,9 @@ class Text2SQLEnumHintService:
                 {
                     "name": column_name,
                     "type": column_type,
-                    "priority": cls._column_priority(column_name, column_type),
                 }
             )
-
-        ranked = sorted(
-            candidates,
-            key=lambda item: (
-                -int(item.get("priority") or 0),
-                cls._normalize_identifier(str(item.get("name") or "")),
-            ),
-        )
-        return ranked[: max(0, int(max_columns))]
+        return candidates[: max(0, int(max_columns))]
 
     @classmethod
     def _build_probe_sql(
@@ -117,6 +121,7 @@ class Text2SQLEnumHintService:
         sample_rows: int,
         top_values: int,
     ) -> str:
+        """构造 SQL Server 探测 SQL：先抽样若干行，再取 Top-N 高频取值。"""
         quoted_table = cls._quote_identifier(table_name)
         quoted_column = cls._quote_identifier(column_name)
         if cls._is_text_like_type(column_type):
@@ -124,17 +129,17 @@ class Text2SQLEnumHintService:
         else:
             where_clause = f"{quoted_column} IS NOT NULL"
 
-        inner_sql = f"SELECT {quoted_column} AS v FROM {quoted_table} WHERE {where_clause}"
+        sample_limit = max(1, int(sample_rows))
+        top_limit = max(1, int(top_values))
+        inner_sql = f"SELECT TOP ({sample_limit}) {quoted_column} AS v FROM {quoted_table} WHERE {where_clause}"
         if primary_key_column:
             inner_sql += f" ORDER BY {cls._quote_identifier(primary_key_column)} ASC"
-        inner_sql += f" LIMIT {max(1, int(sample_rows))}"
 
         return (
-            "SELECT v, COUNT(1) AS c "
+            f"SELECT TOP ({top_limit}) v, COUNT(1) AS c "
             f"FROM ({inner_sql}) sampled "
             "GROUP BY v "
-            "ORDER BY c DESC "
-            f"LIMIT {max(1, int(top_values))}"
+            "ORDER BY c DESC"
         )
 
     @staticmethod
@@ -205,7 +210,9 @@ class Text2SQLEnumHintService:
         sample_rows: int,
         top_values: int,
         timeout_ms: int,
+        db_type: str = DB_TYPE_SQLSERVER,
     ) -> dict[str, Any]:
+        # 探测 SQL 直接使用 SQL Server T-SQL。
         sql = self._build_probe_sql(
             table_name=table_name,
             column_name=column_name,
@@ -217,7 +224,7 @@ class Text2SQLEnumHintService:
         try:
             with engine.connect() as conn:
                 try:
-                    conn.execute(text(f"SET SESSION MAX_EXECUTION_TIME={max(1, int(timeout_ms))}"))
+                    conn.execute(text(f"SET LOCK_TIMEOUT {max(1, int(timeout_ms))}"))
                 except Exception:  # noqa: BLE001
                     pass
                 result = conn.execute(text(sql))
@@ -277,6 +284,7 @@ class Text2SQLEnumHintService:
         hint_map: dict[str, dict[str, list[tuple[str, int]]]],
         max_prompt_chars: int,
     ) -> dict[str, dict[str, list[tuple[str, int]]]]:
+        """按提示词字符上限裁剪枚举提示：优先丢弃低频取值，再不够则整列剔除，控制 token 占用。"""
         if max_prompt_chars <= 0:
             return {}
 
@@ -328,6 +336,11 @@ class Text2SQLEnumHintService:
         queryable_columns_map: dict[str, set[str]] | None,
         base_prompt_hint: str,
     ) -> str:
+        """对外入口：探测候选表枚举字段的高频取值，并把 enum_hints_json 追加到 base_prompt_hint。
+
+        受多项配置约束（最多探测表数/列数/取值数、采样行数、超时、并发数、提示词字符上限），
+        全程异常/超时安全降级为原始提示词，绝不阻断主流程。
+        """
         start_ns = time.monotonic_ns()
         table_limit = max(1, int(settings.TEXT2SQL_ENUM_HINT_MAX_TABLES))
         sample_rows = max(1, int(settings.TEXT2SQL_ENUM_HINT_SAMPLE_ROWS))
@@ -366,6 +379,7 @@ class Text2SQLEnumHintService:
                 queryable_columns_map=queryable_columns_map,
             )
             engine = self._engine_provider(db)
+            db_type = self._resolve_db_type(db)
             probe_tasks: list[dict[str, str]] = []
             for table_name in selected_tables:
                 table_columns = metadata_map.get(table_name, [])
@@ -398,6 +412,7 @@ class Text2SQLEnumHintService:
                         sample_rows=sample_rows,
                         top_values=top_values,
                         timeout_ms=timeout_ms,
+                        db_type=db_type,
                     ): task
                     for task in probe_tasks
                 }

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from core.config import settings
 from core.database import SessionLocal
-from core.milvus_name import normalize_collection_name
+from core.es_index_name import normalize_index_name
+from repositories.es_repo import es_repo
 from repositories.knowledge_base_repo import KnowledgeBaseRepository
 from repositories.knowledge_file_repo import KnowledgeFileRepository
-from repositories.milvus_repo import milvus_repo
 from services.rag_service import rag_service
 from tasks.celery_app import celery_app
 
@@ -18,7 +18,7 @@ def _ensure_valid_collection_name(
     """中文备注：处理_ensure_valid_collection_name相关业务数据并返回结果。
     执行流程：先处理输入与上下文，再执行核心逻辑，最后返回结果或抛出异常。
     """
-    normalized = normalize_collection_name(collection_name)
+    normalized = normalize_index_name(collection_name)
     if normalized == str(collection_name):
         return normalized
 
@@ -67,10 +67,9 @@ def _run_file_task(file_id: int, *, reprocess: bool) -> dict:
         # Retry-safe cleanup: avoid duplicated chunks/vectors after task retry.
         file_repo.delete_chunks_by_file_id(int(file_entity.id))
         try:
-            milvus_repo.delete_chunks_by_file_id(
+            es_repo.delete_chunks_by_file_id(
                 int(file_entity.id),
-                collection_name=kb_entity.collection_name,
-                vector_dim=int(settings.MILVUS_VECTOR_DIM),
+                index_name=kb_entity.collection_name,
             )
         except Exception:
             pass

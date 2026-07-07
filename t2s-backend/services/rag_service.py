@@ -12,9 +12,9 @@ from models.document_chunk import DocumentChunk
 from models.knowledge_base import KnowledgeBase
 from models.knowledge_file import KnowledgeFile
 from repositories.knowledge_file_repo import KnowledgeFileRepository
-from repositories.milvus_repo import milvus_repo
+from repositories.es_repo import es_repo
 from repositories.minio_repo import minio_repo
-from services.embeddings import get_embeddings
+from services.embeddings import get_embedding_vector_dim, get_embeddings
 
 
 _TEXT_EXTENSIONS = {
@@ -30,13 +30,25 @@ _TEXT_EXTENSIONS = {
     "tsv",
 }
 
-try:
-    from unstructured.partition.auto import partition
+_unstructured_partition = None
+_unstructured_checked = False
 
-    _HAS_UNSTRUCTURED = True
-except Exception:  # noqa: BLE001
-    partition = None
-    _HAS_UNSTRUCTURED = False
+
+def _get_unstructured_partition():
+    global _unstructured_checked, _unstructured_partition
+
+    if _unstructured_checked:
+        return _unstructured_partition
+
+    _unstructured_checked = True
+    try:
+        from unstructured.partition.auto import partition
+    except Exception:  # noqa: BLE001
+        _unstructured_partition = None
+    else:
+        _unstructured_partition = partition
+
+    return _unstructured_partition
 
 
 @dataclass
@@ -75,7 +87,8 @@ class RAGService:
         if ext in _TEXT_EXTENSIONS:
             return text
 
-        if _HAS_UNSTRUCTURED and partition is not None:
+        partition = _get_unstructured_partition()
+        if partition is not None:
             suffix = f".{ext}" if ext else ""
             temp_path = ""
             try:
@@ -158,11 +171,16 @@ class RAGService:
         ]
         saved_chunks = repo.bulk_create_chunks(chunk_entities)
 
-        embeddings = get_embeddings().embed_documents([item.content for item in saved_chunks])
+        embeddings = get_embeddings(db).embed_documents([item.content for item in saved_chunks])
         if not embeddings:
             raise ValueError("Embedding generation returned empty vectors")
+        if len(embeddings) != len(saved_chunks):
+            raise ValueError(
+                "Embedding provider returned an unexpected vector count: "
+                f"expected {len(saved_chunks)}, got {len(embeddings)}"
+            )
 
-        vector_dim = int(settings.MILVUS_VECTOR_DIM)
+        vector_dim = int(get_embedding_vector_dim(db))
         actual_dim = len(embeddings[0])
         for vector in embeddings:
             if len(vector) != actual_dim:
@@ -172,8 +190,8 @@ class RAGService:
         if actual_dim != vector_dim:
             raise ValueError(
                 "Embedding vector dim mismatch with configuration: "
-                f"MILVUS_VECTOR_DIM={vector_dim}, embedding output={actual_dim}. "
-                "Please align MILVUS_VECTOR_DIM with the selected embedding model."
+                f"configured vector_dim={vector_dim}, embedding output={actual_dim}. "
+                "Please align vector_dim with the selected embedding model."
             )
 
         rows = [
@@ -187,9 +205,9 @@ class RAGService:
             for chunk, vector in zip(saved_chunks, embeddings)
         ]
 
-        milvus_repo.insert_chunks(
+        es_repo.insert_chunks(
             rows,
-            collection_name=kb_entity.collection_name,
+            index_name=kb_entity.collection_name,
             vector_dim=vector_dim,
         )
 

@@ -5,11 +5,6 @@
         <h2>知识库管理</h2>
         <p>先创建并确认知识库 ID，再进入对应知识库上传文件。</p>
       </div>
-      <div class="quick-nav">
-        <RouterLink to="/connection" class="quick-link">连接配置</RouterLink>
-        <RouterLink to="/table" class="quick-link">表开关</RouterLink>
-        <RouterLink to="/qa" class="quick-link">知识问答</RouterLink>
-      </div>
     </header>
 
     <div v-if="notice" class="notice" :class="noticeType">{{ notice }}</div>
@@ -25,6 +20,14 @@
           <label>
             <span>集合名（可选）</span>
             <input v-model.trim="kbForm.collection_name" placeholder="例如：biz_docs_collection" />
+          </label>
+          <label>
+            <span>用途</span>
+            <select v-model="kbForm.usage">
+              <option value="table_route">表路由</option>
+              <option value="few_shot">Few-shot</option>
+              <option value="data_dictionary">数据字典</option>
+            </select>
           </label>
           <label>
             <span>默认切片大小</span>
@@ -57,6 +60,7 @@
               <tr>
                 <th>ID</th>
                 <th>名称</th>
+                <th>用途</th>
                 <th>Collection</th>
                 <th>默认切片策略</th>
                 <th>默认库</th>
@@ -73,6 +77,9 @@
                     <p v-if="item.description">{{ item.description }}</p>
                   </div>
                 </td>
+                <td>
+                  <span class="usage-tag" :class="usageClass(item.usage)">{{ usageText(item.usage) }}</span>
+                </td>
                 <td class="mono">{{ item.collection_name }}</td>
                 <td>{{ item.default_chunk_size }} / {{ item.default_chunk_overlap }}</td>
                 <td>
@@ -83,13 +90,13 @@
                 <td>{{ formatTime(item.created_at) }}</td>
                 <td>
                   <div class="row-actions">
-                    <RouterLink :to="`/knowledge/${item.id}`" class="btn-primary enter-link">进入知识库</RouterLink>
+                    <RouterLink :to="`/admin/text2sql/knowledge/${item.id}`" class="btn-primary enter-link">进入知识库</RouterLink>
                     <button class="btn-danger" :disabled="loading.kb" @click="deleteKb(item)">删除</button>
                   </div>
                 </td>
               </tr>
               <tr v-if="kbList.length === 0">
-                <td colspan="7" class="empty-cell">暂无知识库，请先创建</td>
+                <td colspan="8" class="empty-cell">暂无知识库，请先创建</td>
               </tr>
             </tbody>
           </table>
@@ -114,6 +121,7 @@ const kbForm = reactive({
   name: "",
   description: "",
   collection_name: "",
+  usage: "table_route",
   default_chunk_size: 800,
   default_chunk_overlap: 120,
 });
@@ -131,6 +139,7 @@ function resetKbForm() {
   kbForm.name = "";
   kbForm.description = "";
   kbForm.collection_name = "";
+  kbForm.usage = "table_route";
   kbForm.default_chunk_size = 800;
   kbForm.default_chunk_overlap = 120;
 }
@@ -168,6 +177,7 @@ async function createKb() {
       name: kbForm.name,
       description: kbForm.description,
       collection_name: kbForm.collection_name || null,
+      usage: kbForm.usage,
       default_chunk_size: Number(kbForm.default_chunk_size),
       default_chunk_overlap: Number(kbForm.default_chunk_overlap),
     };
@@ -220,6 +230,20 @@ function formatTime(value) {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
+function usageText(value) {
+  const usage = String(value || "table_route");
+  if (usage === "few_shot") return "Few-shot";
+  if (usage === "data_dictionary") return "数据字典";
+  return "表路由";
+}
+
+function usageClass(value) {
+  const usage = String(value || "table_route");
+  if (usage === "few_shot") return "few-shot";
+  if (usage === "data_dictionary") return "data-dictionary";
+  return "table-route";
+}
+
 onMounted(async () => {
   await loadKnowledgeBases();
 });
@@ -229,16 +253,15 @@ onMounted(async () => {
 .knowledge-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
 }
 
 .panel {
-  background: var(--bg-panel);
-  backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 24px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: none;
+  padding: 18px;
 }
 
 .page-header {
@@ -247,17 +270,24 @@ onMounted(async () => {
   align-items: flex-start;
   flex-wrap: wrap;
   gap: 16px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 2px 0 10px;
 }
 
 h2 {
   margin: 0 0 8px;
-  font-size: 22px;
-  font-weight: 700;
+  font-size: clamp(24px, 2.7vw, 34px);
+  line-height: 1.1;
+  font-weight: 720;
+  letter-spacing: 0;
 }
 
 h3 {
   margin: 0 0 16px;
-  font-size: 18px;
+  font-size: 15px;
+  font-weight: 690;
 }
 
 .header-content p {
@@ -265,35 +295,20 @@ h3 {
   color: var(--text-muted);
 }
 
-.quick-nav {
-  display: flex;
-  gap: 8px;
-}
-
-.quick-link {
-  text-decoration: none;
-  padding: 6px 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
-  background: var(--accent-light);
-}
-
-.quick-link:hover {
-  background: var(--accent);
-  color: #fff;
-}
-
 .grid-top {
   display: grid;
-  grid-template-columns: 1fr 2fr;
-  gap: 20px;
+  grid-template-columns: minmax(340px, 0.82fr) minmax(0, 1.8fr);
+  gap: 14px;
+}
+
+.form-panel,
+.list-panel {
+  min-width: 0;
 }
 
 .form-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -302,7 +317,8 @@ label {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 620;
+  min-width: 0;
 }
 
 label span {
@@ -310,18 +326,12 @@ label span {
 }
 
 input,
+select,
 textarea {
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 10px 12px;
-  background: #fff;
-}
-
-input:focus,
-textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-light);
-  outline: none;
 }
 
 .span-2 {
@@ -336,8 +346,6 @@ textarea:focus {
 }
 
 button {
-  border: none;
-  border-radius: 8px;
   padding: 10px 14px;
   font-size: 13px;
   font-weight: 600;
@@ -349,41 +357,20 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.btn-primary,
-.btn-secondary {
-  background: var(--accent);
-  color: #fff;
-}
-
-.btn-primary:hover,
-.btn-secondary:hover {
-  background: var(--accent-hover);
-}
-
 .btn-danger {
-  background: #ef4444;
-  color: #fff;
+  background: #fff7f6;
+  color: var(--error);
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #dc2626;
-}
-
-.btn-ghost {
-  border: 1px solid var(--line);
-  background: transparent;
-  color: var(--text-main);
-}
-
-.btn-ghost:hover:not(:disabled) {
-  background: #f1f5f9;
+  background: #fff1f0;
 }
 
 .notice {
   padding: 12px 16px;
-  border-radius: 10px;
-  font-size: 14px;
-  font-weight: 500;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 560;
 }
 
 .notice.success {
@@ -408,6 +395,9 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  padding: 0;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.72);
 }
 
 .list-header {
@@ -416,6 +406,9 @@ button:disabled {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(244, 244, 241, 0.62);
 }
 
 .table-wrap {
@@ -425,21 +418,27 @@ button:disabled {
 .kb-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 920px;
+  min-width: 1040px;
 }
 
 .kb-table th,
 .kb-table td {
-  border-bottom: 1px solid #e2e8f0;
-  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 12px 14px;
   text-align: left;
   vertical-align: top;
   font-size: 13px;
 }
 
 .kb-table th {
-  background: #f8fafc;
+  background: rgba(244, 244, 241, 0.68);
   color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.kb-table tbody tr:hover td {
+  background: rgba(17, 17, 17, 0.026);
 }
 
 .mono {
@@ -463,14 +462,37 @@ button:disabled {
 .meta-tag {
   font-size: 12px;
   padding: 4px 8px;
-  border-radius: 999px;
-  background: #f1f5f9;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
   color: var(--text-muted);
 }
 
+.usage-tag {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.usage-tag.few-shot {
+  background: var(--success-light);
+  color: var(--success);
+}
+
+.usage-tag.data-dictionary {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
 .default-tag {
-  background: #dbeafe;
-  color: #1d4ed8;
+  background: #f2f2ef;
+  color: var(--text-main);
 }
 
 .enter-link {

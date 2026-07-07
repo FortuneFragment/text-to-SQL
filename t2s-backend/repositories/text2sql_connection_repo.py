@@ -23,6 +23,7 @@ class Text2SQLConnectionRepository:
         password: str,
         database: str,
         charset: str,
+        db_schema: str | None = None,
     ) -> Text2SQLConnection:
         """创建或更新当前生效的连接配置。"""
         record = self.get_active()
@@ -34,6 +35,7 @@ class Text2SQLConnectionRepository:
                 username=username,
                 password=password,
                 database=database,
+                db_schema=db_schema,
                 charset=charset,
             )
             self.db.add(record)
@@ -44,6 +46,7 @@ class Text2SQLConnectionRepository:
             record.username = username
             record.password = password
             record.database = database
+            record.db_schema = db_schema
             record.charset = charset
         self.db.commit()
         self.db.refresh(record)

@@ -8,7 +8,7 @@ from models.base import Base
 
 
 class Text2SQLScopedConfig(Base):
-    """存储按连接隔离的表开关与提示词配置。"""
+    """存储按连接隔离的提示词配置。"""
 
     __tablename__ = "text2sql_scoped_config"
     __table_args__ = (
@@ -19,7 +19,6 @@ class Text2SQLScopedConfig(Base):
     user_id: Mapped[int] = mapped_column(nullable=False, index=True)
     connection_key: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
 
-    selected_tables: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     prompt_hint: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

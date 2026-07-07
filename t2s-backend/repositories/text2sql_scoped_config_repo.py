@@ -27,7 +27,6 @@ class Text2SQLScopedConfigRepository:
         *,
         user_id: int,
         connection_key: str,
-        selected_tables: str | None,
         prompt_hint: str | None,
     ) -> Text2SQLScopedConfig:
         """按用户+连接键创建或更新配置记录。"""
@@ -36,13 +35,11 @@ class Text2SQLScopedConfigRepository:
             config = Text2SQLScopedConfig(
                 user_id=user_id,
                 connection_key=connection_key,
-                selected_tables=selected_tables,
                 prompt_hint=prompt_hint,
                 is_deleted=False,
             )
             self.db.add(config)
         else:
-            config.selected_tables = selected_tables
             config.prompt_hint = prompt_hint
             config.is_deleted = False
         self.db.commit()
