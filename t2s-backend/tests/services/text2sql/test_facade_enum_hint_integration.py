@@ -13,6 +13,9 @@ class DummySchemaService:
     def list_table_options(self, db):
         return []
 
+    def list_table_names(self, db):
+        return ["t_student"]
+
     def validate_selected_tables(self, db, table_names):
         return table_names or [], []
 
@@ -22,17 +25,6 @@ class DummySchemaService:
 
 class DummyConfigService:
     pass
-
-
-class DummyFieldPermissionService:
-    def get_queryable_columns_map(self, db, table_names=None):
-        return {"t_student": {"status"}}
-
-    def get_queryable_table_names(self, db, table_names=None):
-        return ["t_student"]
-
-    def build_query_field_comment_bindings(self, **kwargs):
-        return []
 
 
 class DummyLogService:
@@ -70,7 +62,6 @@ def _build_facade() -> Text2SQLFacadeService:
         connection_service=DummyConnectionService(),
         schema_service=DummySchemaService(),
         config_service=DummyConfigService(),
-        field_permission_service=DummyFieldPermissionService(),
         relation_service=DummyRelationService(),
         log_service=DummyLogService(),
     )

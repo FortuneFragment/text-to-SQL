@@ -21,21 +21,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.create_table(
-        "user",
-        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("username", sa.String(length=64), nullable=False),
-        sa.Column("email", sa.String(length=255), nullable=False),
-        sa.Column("hashed_password", sa.String(length=255), nullable=False),
-        sa.Column("is_active", sa.Boolean(), server_default=sa.text("1"), nullable=False),
-        sa.Column("is_admin", sa.Boolean(), server_default=sa.text("0"), nullable=False),
-        sa.Column("created_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
-        sa.PrimaryKeyConstraint("id"),
-    )
-    op.create_index("ix_user_username", "user", ["username"], unique=True)
-    op.create_index("ix_user_email", "user", ["email"], unique=True)
-
-    op.create_table(
         "text2sql_config",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("user_id", sa.Integer(), nullable=False),
@@ -83,6 +68,7 @@ def upgrade() -> None:
         sa.Column("row_count", sa.Integer(), nullable=True),
         sa.Column("duration_ms", sa.Integer(), nullable=True),
         sa.Column("repaired", sa.Boolean(), server_default=sa.text("0"), nullable=False),
+        sa.Column("feedback_score", sa.Integer(), nullable=True),
         sa.Column("created_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -97,7 +83,8 @@ def upgrade() -> None:
         sa.Column("username", sa.String(length=255), nullable=False),
         sa.Column("password", sa.String(length=1024), nullable=False),
         sa.Column("database", sa.String(length=255), nullable=False),
-        sa.Column("charset", sa.String(length=64), server_default=sa.text("'utf8mb4'"), nullable=False),
+        sa.Column("db_schema", sa.String(length=128), nullable=True),
+        sa.Column("charset", sa.String(length=64), server_default=sa.text("'UTF-8'"), nullable=False),
         sa.Column("created_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.Column("updated_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.PrimaryKeyConstraint("id"),
@@ -148,7 +135,7 @@ def upgrade() -> None:
         sa.Column("target_columns", sa.Text(), nullable=False),
         sa.Column("target_columns_hash", sa.String(length=64), nullable=False),
         sa.Column("relation_type", sa.String(length=16), server_default=sa.text("'N:1'"), nullable=False),
-        sa.Column("description", sa.Text(), server_default=sa.text("''"), nullable=False),
+        sa.Column("description", sa.Text(), nullable=False),
         sa.Column("is_active", sa.Boolean(), server_default=sa.text("1"), nullable=False),
         sa.Column("created_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.Column("updated_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
@@ -253,4 +240,3 @@ def downgrade() -> None:
     op.drop_table("text2sql_query_log")
     op.drop_table("text2sql_scoped_config")
     op.drop_table("text2sql_config")
-    op.drop_table("user")

@@ -36,13 +36,13 @@ class FakeConnectionRepo:
 
 def _build_payload(password: str | None = "abc123") -> Text2SQLConnectionPayload:
     return Text2SQLConnectionPayload(
-        db_type="mysql",
+        db_type="sqlserver",
         host="127.0.0.1",
-        port=3306,
-        username="root",
+        port=1433,
+        username="sa",
         password=password,
         database="biz_db",
-        charset="utf8mb4",
+        charset="UTF-8",
     )
 
 
@@ -75,13 +75,13 @@ def test_reusable_password_can_decrypt_encrypted_saved_password(monkeypatch):
     service = Text2SQLConnectionService()
     encrypted = service._password_cipher.encrypt("secret-pass")
     FakeConnectionRepo.active = SimpleNamespace(
-        db_type="mysql",
+        db_type="sqlserver",
         host="127.0.0.1",
-        port=3306,
-        username="root",
+        port=1433,
+        username="sa",
         password=encrypted,
         database="biz_db",
-        charset="utf8mb4",
+        charset="UTF-8",
     )
 
     reused = service._resolve_reusable_password(

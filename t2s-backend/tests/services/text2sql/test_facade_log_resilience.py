@@ -26,17 +26,6 @@ class DummyConfigService:
     pass
 
 
-class DummyFieldPermissionService:
-    def get_queryable_columns_map(self, db, table_names=None):
-        return {}
-
-    def get_queryable_table_names(self, db, table_names=None):
-        return []
-
-    def build_query_field_comment_bindings(self, **kwargs):
-        return []
-
-
 class DummyRelationService:
     def get_active_relations_by_tables(self, db, table_names):
         return []
@@ -75,7 +64,6 @@ def _build_facade(log_service) -> Text2SQLFacadeService:
         connection_service=DummyConnectionService(),
         schema_service=DummySchemaService(),
         config_service=DummyConfigService(),
-        field_permission_service=DummyFieldPermissionService(),
         relation_service=DummyRelationService(),
         log_service=log_service,
     )

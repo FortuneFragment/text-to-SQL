@@ -12,11 +12,12 @@ class DummyEmbeddings:
 
 def _build_service(monkeypatch, raw_hits: list[dict]) -> Text2SQLVectorService:
     service = Text2SQLVectorService(kb_id=2)
-    monkeypatch.setattr(settings, "MILVUS_VECTOR_DIM", 3)
+    monkeypatch.setattr(settings, "ES_VECTOR_DIM", 3)
     monkeypatch.setattr(service, "_resolve_collection_name", lambda db, requested_kb_id=None: (2, "kb_route"))
     monkeypatch.setattr(service, "_load_file_name_lookup", lambda db, file_ids: {})
-    monkeypatch.setattr(vector_module, "get_embeddings", lambda: DummyEmbeddings())
-    monkeypatch.setattr(vector_module.milvus_repo, "search_chunks", lambda **kwargs: list(raw_hits))
+    monkeypatch.setattr(vector_module, "get_embeddings", lambda db=None: DummyEmbeddings())
+    monkeypatch.setattr(vector_module, "get_embedding_vector_dim", lambda db=None: 3)
+    monkeypatch.setattr(vector_module.es_repo, "search_chunks", lambda **kwargs: list(raw_hits))
     return service
 
 

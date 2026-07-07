@@ -13,6 +13,7 @@ class DummySchemaService:
     def __init__(self):
         self.list_table_names_calls = 0
         self.list_table_options_by_names_calls: list[list[str]] = []
+        self.validate_selected_tables_calls: list[list[str] | None] = []
 
     def list_table_names(self, db):
         self.list_table_names_calls += 1
@@ -27,33 +28,22 @@ class DummySchemaService:
         ]
 
     def validate_selected_tables(self, db, table_names):
+        self.validate_selected_tables_calls.append(list(table_names) if table_names is not None else None)
         return table_names or [], []
 
     def get_live_table_columns_map(self, db, table_names=None, queryable_columns_map=None):
-        return {}
-
-
-class DummyConfigService:
-    pass
-
-
-class DummyFieldPermissionService:
-    def __init__(self):
-        self.queryable_scope_calls: list[list[str] | None] = []
-
-    def get_queryable_table_names(self, db, table_names=None):
-        self.queryable_scope_calls.append(list(table_names) if table_names is not None else None)
-        return ["t_order", "t_customer", "t_product"]
-
-    def get_queryable_columns_map(self, db, table_names=None):
-        return {
+        available = {
             "t_order": {"id", "customer_id", "amount"},
             "t_customer": {"id", "name"},
             "t_product": {"id", "name"},
         }
+        if table_names is None:
+            return available
+        return {name: available.get(name, set()) for name in table_names if name in available}
 
-    def build_query_field_comment_bindings(self, **kwargs):
-        return []
+
+class DummyConfigService:
+    pass
 
 
 class DummyRelationService:
@@ -75,16 +65,14 @@ class DummyLogService:
 
 def _build_facade():
     schema = DummySchemaService()
-    field_permission = DummyFieldPermissionService()
     facade = Text2SQLFacadeService(
         connection_service=DummyConnectionService(),
         schema_service=schema,
         config_service=DummyConfigService(),
-        field_permission_service=field_permission,
         relation_service=DummyRelationService(),
         log_service=DummyLogService(),
     )
-    return facade, schema, field_permission
+    return facade, schema, None
 
 
 def test_route_tables_prefers_kb_recall_then_schema_rerank(monkeypatch):
@@ -139,7 +127,7 @@ def test_route_tables_prefers_kb_recall_then_schema_rerank(monkeypatch):
     assert schema.list_table_names_calls == 1
     assert schema.list_table_options_by_names_calls[0] == ["t_order", "t_customer"]
     assert schema.list_table_options_by_names_calls[-1] == ["t_order", "t_customer"]
-    assert field_permission.queryable_scope_calls == [["t_order", "t_customer", "t_product"]]
+    assert schema.validate_selected_tables_calls == [["t_order", "t_customer", "t_product"]]
     assert route["mode"] == "multi"
     assert route["route_pool_tables"] == ["t_order", "t_customer"]
     assert route["candidates"] == ["t_order", "t_customer"]

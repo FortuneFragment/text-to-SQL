@@ -58,7 +58,7 @@ def _build_db_session() -> Session:
     return session_factory()
 
 
-def test_relation_service_crud_and_active_filter():
+def test_relation_service_crud_and_relation_hints():
     db = _build_db_session()
     service = Text2SQLRelationService(DummySchemaService(), DummyConfigService())
     created = service.create_relation(
@@ -70,7 +70,6 @@ def test_relation_service_crud_and_active_filter():
             target_columns=["tenant_id", "id"],
             relation_type="N:1",
             description="订单关联用户",
-            is_active=True,
         ),
     )
 
@@ -96,13 +95,12 @@ def test_relation_service_crud_and_active_filter():
             target_columns=["tenant_id", "id"],
             relation_type="N:1",
             description="已停用",
-            is_active=False,
         ),
     )
-    assert updated.is_active is False
+    assert updated.description
 
-    hints_after_disable = service.get_active_relations_by_tables(db, ["t_order", "t_user"])
-    assert hints_after_disable == []
+    hints_after_update = service.get_active_relations_by_tables(db, ["t_order", "t_user"])
+    assert len(hints_after_update) == 1
 
     service.delete_relation(db, created.id)
     after_delete = service.list_relations(db, page=1, page_size=20)
@@ -122,7 +120,6 @@ def test_relation_service_rejects_duplicate_or_reverse_duplicate():
             target_columns=["id"],
             relation_type="N:1",
             description="",
-            is_active=True,
         ),
     )
     with pytest.raises(ValueError):
@@ -135,7 +132,6 @@ def test_relation_service_rejects_duplicate_or_reverse_duplicate():
                 target_columns=["user_id"],
                 relation_type="1:N",
                 description="反向重复",
-                is_active=True,
             ),
         )
 
@@ -153,7 +149,6 @@ def test_relation_service_isolated_by_connection_key():
             target_columns=["id"],
             relation_type="N:1",
             description="",
-            is_active=True,
         ),
     )
 
@@ -175,6 +170,5 @@ def test_relation_service_validates_composite_column_length():
                 target_columns=["tenant_id"],
                 relation_type="N:1",
                 description="",
-                is_active=True,
             ),
         )

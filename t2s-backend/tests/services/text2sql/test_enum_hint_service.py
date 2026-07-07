@@ -15,7 +15,7 @@ class DummySchemaService:
 
     @staticmethod
     def _normalize_identifier(value: str | None) -> str:
-        text_value = (value or "").strip().strip("`").strip('"')
+        text_value = (value or "").strip().strip("`").strip('"').replace("[", "").replace("]", "")
         if "." in text_value:
             text_value = text_value.split(".")[-1]
         return text_value.lower()
@@ -87,10 +87,12 @@ def test_build_probe_sql_differs_for_text_and_tinyint():
         top_values=5,
     )
 
-    assert "TRIM(`status`) <> ''" in text_sql
-    assert "ORDER BY `id` ASC" in text_sql
-    assert "TRIM(`level`)" not in tinyint_sql
-    assert "`level` IS NOT NULL" in tinyint_sql
+    assert "SELECT TOP (5)" in text_sql
+    assert "SELECT TOP (100) [status] AS v" in text_sql
+    assert "TRIM([status]) <> ''" in text_sql
+    assert "ORDER BY [id] ASC" in text_sql
+    assert "TRIM([level])" not in tinyint_sql
+    assert "[level] IS NOT NULL" in tinyint_sql
 
 
 def test_normalize_probe_rows_removes_dirty_and_sorts():
@@ -136,7 +138,7 @@ def test_trim_hint_map_prefers_column_coverage():
     assert "t_student" in payload["enum_hints"]
 
 
-def test_build_prompt_hint_from_sqlite_sampling(tmp_path, monkeypatch):
+def test_build_prompt_hint_fail_open_on_non_sqlserver_probe_error(tmp_path, monkeypatch):
     db_file = Path(tmp_path) / "enum_hint.db"
     engine = create_engine(
         f"sqlite+pysqlite:///{db_file}",
@@ -197,13 +199,7 @@ def test_build_prompt_hint_from_sqlite_sampling(tmp_path, monkeypatch):
         base_prompt_hint="基础约束",
     )
 
-    assert "enum_hints_json" in prompt_hint
-    payload = json.loads(prompt_hint.split("enum_hints_json:\n", 1)[1])
-    enum_hints = payload["enum_hints"]["t_student"]
-
-    assert enum_hints["status"][0] == "在读"
-    assert "毕业" in enum_hints["status"]
-    assert "" not in enum_hints["status"]
+    assert prompt_hint == "基础约束"
 
 
 def test_build_prompt_hint_fail_open_on_schema_error():

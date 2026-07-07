@@ -27,20 +27,6 @@ class DummyConfigService:
     pass
 
 
-class DummyFieldPermissionService:
-    def get_queryable_columns_map(self, db, table_names=None):
-        return {
-            "t_student": {"id", "class_id", "name"},
-            "t_class": {"id", "name"},
-        }
-
-    def get_queryable_table_names(self, db, table_names=None):
-        return ["t_student", "t_class"]
-
-    def build_query_field_comment_bindings(self, **kwargs):
-        return []
-
-
 class DummyLogService:
     def create_success_log(self, **kwargs):
         return None
@@ -75,7 +61,6 @@ def _build_facade(relation_hints: list[dict]) -> Text2SQLFacadeService:
         connection_service=DummyConnectionService(),
         schema_service=DummySchemaService(),
         config_service=DummyConfigService(),
-        field_permission_service=DummyFieldPermissionService(),
         relation_service=DummyRelationService(relation_hints),
         log_service=DummyLogService(),
     )
