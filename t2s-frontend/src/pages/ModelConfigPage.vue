@@ -71,6 +71,8 @@
                     <span>{{ item.timeout_seconds }} 秒超时</span>
                     <span v-if="modelType(item) === 'embedding'">{{ item.vector_dim || "自动探测" }} 维</span>
                     <span v-if="modelType(item) === 'embedding'">批量 {{ item.batch_size || "-" }}</span>
+                    <span v-if="modelType(item) === 'embedding'">{{ item.verify_ssl ? "校验证书" : "不校验证书" }}</span>
+                    <span v-if="modelType(item) === 'embedding'">{{ item.trust_env ? "继承代理" : "直连服务" }}</span>
                   </div>
                 </td>
                 <td>
@@ -158,6 +160,11 @@
               <span>重试退避（秒）</span>
               <input v-model="form.retry_backoff_seconds" type="number" min="0" max="60" step="0.1" />
             </label>
+            <label v-if="form.kind === 'embedding' && form.verify_ssl" class="span-2">
+              <span>CA 证书文件路径（可选）</span>
+              <input v-model.trim="form.ca_bundle" placeholder="例如 C:\certs\internal-ca.pem" />
+              <small>该路径必须在后端进程或容器内可读取；公共 HTTPS 服务通常留空。</small>
+            </label>
             <label class="span-2">
               <span>额外参数</span>
               <textarea v-model.trim="form.extra_params" rows="3" placeholder="可留空"></textarea>
@@ -165,6 +172,14 @@
           </div>
 
           <div class="switch-row">
+            <label v-if="form.kind === 'embedding'" class="check-label">
+              <input v-model="form.verify_ssl" type="checkbox" />
+              <span>校验 HTTPS 证书</span>
+            </label>
+            <label v-if="form.kind === 'embedding'" class="check-label">
+              <input v-model="form.trust_env" type="checkbox" />
+              <span>继承系统代理设置</span>
+            </label>
             <label class="check-label">
               <input v-model="form.is_active" type="checkbox" />
               <span>保存后设为启用</span>
@@ -359,7 +374,7 @@ function buildPayload() {
     extra_params: form.extra_params.trim() || null,
     timeout_seconds: toPositiveNumber(form.timeout_seconds, 120),
     verify_ssl: Boolean(form.verify_ssl),
-    ca_bundle: form.ca_bundle.trim() || null,
+    ca_bundle: form.verify_ssl ? form.ca_bundle.trim() || null : null,
     max_retries: Math.min(10, toNonNegativeNumber(form.max_retries, 2)),
     retry_backoff_seconds: toNonNegativeNumber(form.retry_backoff_seconds, 0.5),
     trust_env: Boolean(form.trust_env),
@@ -831,6 +846,12 @@ onMounted(async () => {
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 660;
+}
+
+.form-grid small {
+  color: var(--text-soft);
+  font-size: 11px;
+  line-height: 1.45;
 }
 
 .form-grid input,

@@ -1,4 +1,4 @@
-from typing import List
+from typing import List
 from urllib.parse import quote_plus
 
 from pydantic import computed_field
@@ -12,7 +12,40 @@ class Settings(BaseSettings):
     APP_SECRET_KEY: str = ""
     FERNET_KEY: str = ""
 
-    CORS_ORIGINS: List[str] = ["*"]
+    CORS_ORIGINS: List[str] = ["http://localhost:5173"]
+
+    ENVIRONMENT: str = "production"
+    BACKEND_BASE_URL: str = "http://localhost:8000"
+
+    FRONTEND_BASE_URL: str = "http://localhost:5173"
+
+    OAUTH_CLIENT_ID: str = ""
+    OAUTH_CLIENT_SECRET: str = ""
+
+    OAUTH_AUTHORIZE_URL: str = (
+        "https://oauth2.hunnu.edu.cn/authorize"
+    )
+    OAUTH_TOKEN_URL: str = (
+        "https://oauth2.hunnu.edu.cn/access_token"
+    )
+    OAUTH_USER_INFO_URL: str = (
+        "https://oauth2.hunnu.edu.cn/user_info"
+    )
+    OAUTH_LOGOUT_URL: str = (
+        "https://oauth2.hunnu.edu.cn/logout"
+    )
+
+    OAUTH_REDIRECT_URI: str = ""
+    OAUTH_LOGOUT_REDIRECT_URI: str = ""
+
+    SESSION_COOKIE_NAME: str = "t2s_session"
+    SESSION_TTL_SECONDS: int = 28800
+    SESSION_COOKIE_SECURE: bool = True
+
+    ENABLE_DEV_LOGIN: bool = False
+
+    # 用于初始化第一批信息处管理员
+    BOOTSTRAP_ADMIN_UNICODES: List[str] = []
 
     MYSQL_USER: str
     MYSQL_PASSWORD: str
@@ -44,6 +77,12 @@ class Settings(BaseSettings):
         "txt",
         "md",
         "markdown",
+        "docx",
+        "pdf",
+        "pptx",
+        "html",
+        "htm",
+        "rtf",
         "csv",
         "json",
         "yaml",
@@ -83,8 +122,7 @@ class Settings(BaseSettings):
     TEXT2SQL_CODE_HINT_MAX_VALUES_PER_CATEGORY: int = 50
     TEXT2SQL_CODE_DECODE_ENABLED: bool = True
     TEXT2SQL_CODE_DECODE_MAX_ROWS: int = 2000
-    TABLE_ROUTE_KB_ID: int = 2
-    TEXT2SQL_TABLE_DESC_KB_NAME: str = "table_desc"
+    TABLE_ROUTE_KB_ID: int = 0
     TABLE_ROUTE_KB_SEARCH_TOP_K: int = 120
     TABLE_ROUTE_KB_RECALL_CANDIDATES: int = 60
     TABLE_ROUTE_MAX_CANDIDATES: int = 10
@@ -104,6 +142,16 @@ class Settings(BaseSettings):
     KB_TASK_TIMEOUT_SECONDS: int = 1800
     KB_CHUNK_SIZE: int = 800
     KB_CHUNK_OVERLAP: int = 120
+
+    KB_USAGE_STRICT_ES_FILTER: bool = True
+    KB_USAGE_AUDIT_LOG_ENABLED: bool = True
+    DATA_DICTIONARY_FEATURE_ENABLED: bool = False
+
+    LARGE_TABLE_CELL_THRESHOLD: int = 800
+    LARGE_TABLE_ROW_THRESHOLD: int = 80
+    LARGE_TABLE_COLUMN_THRESHOLD: int = 30
+    LARGE_TABLE_MERGED_CELL_THRESHOLD: int = 20
+    LARGE_TABLE_MARKDOWN_THRESHOLD: int = 30000
 
     CELERY_BROKER_URL: str = ""
     CELERY_RESULT_BACKEND: str = ""

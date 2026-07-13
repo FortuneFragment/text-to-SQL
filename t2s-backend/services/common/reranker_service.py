@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 
 from core.url_utils import normalize_rerank_base_url
-from services.model_config_service import MODEL_KIND_RERANK, model_config_service
+from services.common.model_config_service import MODEL_KIND_RERANK, model_config_service
 
 
 class RerankerService:

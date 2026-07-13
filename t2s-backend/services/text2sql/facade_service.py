@@ -15,7 +15,7 @@
 
 可选增强能力（按配置开关惰性加载，关闭时退化为 _Noop* 空实现，主流程无感知）：
     - 向量路由（vector_service）     ：仅检索专用「table_desc」知识库做语义召回
-      （TABLE_ROUTE_KB_ID 优先，TEXT2SQL_TABLE_DESC_KB_NAME 名称兜底）。
+      （通过 TABLE_ROUTE_KB_ID 显式指定）。
     - few-shot 样例（few_shot）      ：召回历史高分查询作为提示样例。
     - 枚举值提示（enum_hint）        ：把字段的枚举取值喂给模型，减少字面量写错导致的空结果。
     - self-consistency 投票          ：同一问题多温度采样多份 SQL，按执行结果签名投票取多数，提升稳定性。
@@ -36,10 +36,16 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from sqlglot import exp, parse_one
 from sqlalchemy.orm import Session
-
+from core.domain_errors import (
+    InvalidKnowledgeUsageError,
+    KnowledgeBaseConfigurationError,
+    KnowledgeBaseNotFoundError,
+    KnowledgeOperationForbiddenError,
+    KnowledgeUsageMismatchError,
+)
 from core.config import settings
 from core.url_utils import normalize_llm_base_url
-from services.model_config_service import MODEL_KIND_LLM, model_config_service
+from services.common.model_config_service import MODEL_KIND_LLM, model_config_service
 from services.text2sql.config_service import Text2SQLConfigService
 from services.text2sql.connection_service import Text2SQLConnectionService
 from services.text2sql.executor_service import Text2SQLExecutorService
@@ -84,6 +90,14 @@ if not _console_logger.handlers:
     _console_logger.addHandler(_handler)
 _console_logger.setLevel(logging.INFO)
 _console_logger.propagate = False
+
+_KNOWLEDGE_BOUNDARY_ERRORS = (
+    KnowledgeBaseConfigurationError,
+    KnowledgeBaseNotFoundError,
+    InvalidKnowledgeUsageError,
+    KnowledgeOperationForbiddenError,
+    KnowledgeUsageMismatchError,
+)
 
 # 单表路由提示词：让模型从候选表中只挑「一张」主表（多表模式关闭时使用）。
 _TABLE_SELECTION_PROMPT = ChatPromptTemplate.from_messages([
@@ -206,10 +220,8 @@ class Text2SQLFacadeService:
 
     @staticmethod
     def _is_vector_route_enabled() -> bool:
-        """是否启用向量路由：配置了路由知识库 ID，或配置了 table_desc 知识库名称（按名称解析）。"""
-        if int(getattr(settings, "TABLE_ROUTE_KB_ID", 0) or 0) > 0:
-            return True
-        return bool(str(getattr(settings, "TEXT2SQL_TABLE_DESC_KB_NAME", "")).strip())
+        """是否启用向量路由：必须显式配置路由知识库 ID。"""
+        return int(getattr(settings, "TABLE_ROUTE_KB_ID", 0) or 0) > 0
 
     def _build_enum_hint_service(self):
         if not bool(getattr(settings, "TEXT2SQL_ENUM_HINT_ENABLED", False)):
@@ -278,12 +290,22 @@ class Text2SQLFacadeService:
     def _build_vector_service(self):
         if not self._is_vector_route_enabled():
             return _NoopVectorService()
-        try:
-            from services.text2sql.vector_service import Text2SQLVectorService
 
-            return Text2SQLVectorService(kb_id=int(settings.TABLE_ROUTE_KB_ID or 0))
+        try:
+            from services.text2sql.vector_service import (
+                Text2SQLVectorService,
+            )
+
+            return Text2SQLVectorService(
+                kb_id=int(settings.TABLE_ROUTE_KB_ID or 0)
+            )
+        except KnowledgeBaseConfigurationError:
+            # 配置错误不允许降级成 Noop。
+            raise
         except Exception:  # noqa: BLE001
-            _console_logger.exception("vector service init failed, falling back to noop")
+            _console_logger.exception(
+                "vector service init failed, falling back to noop"
+            )
             return _NoopVectorService()
 
     # 下面方法是对 schema / 关系服务的薄封装：统一带上 user_id 过滤，
@@ -700,13 +722,21 @@ class Text2SQLFacadeService:
         few_shot_examples = "(no historical examples)"
         if self._is_few_shot_enabled():
             try:
-                few_shot_examples = self.few_shot_service.search_similar_examples(
-                    db,
-                    question,
-                    table_names=effective_candidates,
+                few_shot_examples = (
+                    self.few_shot_service.search_similar_examples(
+                        db,
+                        question,
+                        table_names=effective_candidates,
+                    )
                 )
+            except _KNOWLEDGE_BOUNDARY_ERRORS:
+                # 用途、知识库 ID、操作权限等边界错误必须向上抛出。
+                raise
             except Exception:  # noqa: BLE001
-                _console_logger.exception("few-shot retrieval failed")
+                # 向量服务或模型服务的暂时故障可以降级。
+                _console_logger.exception(
+                    "few-shot retrieval failed"
+                )
         repair_rounds = max(0, int(settings.TEXT2SQL_AUTO_REPAIR_ROUNDS))
         evaluate_kwargs: dict[str, Any] = {
             "db": db,

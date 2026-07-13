@@ -338,42 +338,102 @@ class Text2SQLModelConfigService:
 
     @staticmethod
     def rebuild_all_knowledge_bases(db: Session) -> dict:
-        from repositories.es_repo import es_repo
+        from core.knowledge_policy import (
+            KnowledgeUsage,
+            expected_processor,
+            parse_usage,
+        )
         from repositories.knowledge_base_repo import KnowledgeBaseRepository
         from repositories.knowledge_file_repo import KnowledgeFileRepository
-        from tasks.document_tasks import reprocess_document_task
+        from services.common.knowledge_file_service import (
+            knowledge_file_service,
+        )
+        from services.document_qa.table_semantic_service import (
+            table_semantic_service,
+        )
 
         kb_repo = KnowledgeBaseRepository(db)
         file_repo = KnowledgeFileRepository(db)
         all_kbs = kb_repo.list_all()
 
-        total_files = 0
+        queued_files = 0
+        failed_files = 0
+        skipped_files = 0
         for kb in all_kbs:
-            try:
-                es_repo.delete_chunks_by_kb_id(
-                    int(kb.id),
-                    index_name=str(kb.collection_name),
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Failed to drop Elasticsearch chunks for kb_id=%s: %s", kb.id, exc)
+            usage = parse_usage(kb.usage)
 
             page = 1
             while True:
-                files, total = file_repo.list_by_kb_paginated(kb_id=int(kb.id), page=page, page_size=200)
+                files, total = (
+                    file_repo.list_by_kb_context_paginated(
+                        kb_id=int(kb.id),
+                        usage_snapshot=usage.value,
+                        processor_type=expected_processor(
+                            usage
+                        ).value,
+                        page=page,
+                        page_size=200,
+                    )
+                )
                 if not files:
                     break
                 for file_entity in files:
-                    if int(file_entity.status) == 2:
-                        file_repo.update_status(int(file_entity.id), status=0, error_msg=None)
-                        task = reprocess_document_task.delay(int(file_entity.id))
-                        file_repo.set_task_id(int(file_entity.id), getattr(task, "id", None))
-                        total_files += 1
+                    if int(file_entity.status) != 2:
+                        skipped_files += 1
+                        continue
+
+                    try:
+                        if usage == KnowledgeUsage.TABLE_SEMANTIC_TREE:
+                            table_semantic_service.reprocess_table_file(
+                                db=db,
+                                file_id=int(file_entity.id),
+                            )
+                        elif usage in {
+                            KnowledgeUsage.TABLE_ROUTE,
+                            KnowledgeUsage.DOCUMENT_QA,
+                            KnowledgeUsage.FEW_SHOT,
+                        }:
+                            knowledge_file_service.reprocess_file(
+                                db=db,
+                                file_id=int(file_entity.id),
+                            )
+                        else:
+                            skipped_files += 1
+                            logger.warning(
+                                "Knowledge rebuild skipped unsupported "
+                                "usage: kb_id=%s usage=%s",
+                                kb.id,
+                                usage.value,
+                            )
+                            continue
+                        queued_files += 1
+                    except Exception as exc:  # noqa: BLE001
+                        failed_files += 1
+                        logger.exception(
+                            "Knowledge rebuild queue failed: "
+                            "kb_id=%s file_id=%s usage=%s error=%s",
+                            kb.id,
+                            file_entity.id,
+                            usage.value,
+                            exc,
+                        )
                 if page * 200 >= total:
                     break
                 page += 1
 
-        logger.info("Rebuild triggered: %s KBs, %s files queued", len(all_kbs), total_files)
-        return {"total_kbs": len(all_kbs), "total_files": total_files}
+        logger.info(
+            "Rebuild triggered: %s KBs, queued=%s failed=%s skipped=%s",
+            len(all_kbs),
+            queued_files,
+            failed_files,
+            skipped_files,
+        )
+        return {
+            "total_kbs": len(all_kbs),
+            "total_files": queued_files,
+            "failed_files": failed_files,
+            "skipped_files": skipped_files,
+        }
 
     @staticmethod
     def _invalidate_service_cache(kind: str) -> None:
@@ -387,7 +447,9 @@ class Text2SQLModelConfigService:
                     facade_service._streaming_model = None
                     facade_service._streaming_model_key = ""
             elif kind == MODEL_KIND_EMBEDDING:
-                embeddings_module = sys.modules.get("services.embeddings")
+                embeddings_module = sys.modules.get(
+                    "services.common.embeddings"
+                )
                 reset_embeddings = getattr(embeddings_module, "reset_embeddings", None)
                 if callable(reset_embeddings):
                     reset_embeddings()

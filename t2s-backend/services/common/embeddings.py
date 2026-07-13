@@ -7,8 +7,8 @@ from typing import Protocol
 
 from core.config import settings
 from core.url_utils import normalize_embedding_base_url
-from services.custom_e5_embeddings import CustomE5Embeddings
-from services.model_config_service import MODEL_KIND_EMBEDDING, model_config_service
+from services.common.custom_e5_embeddings import CustomE5Embeddings
+from services.common.model_config_service import MODEL_KIND_EMBEDDING, model_config_service
 
 
 class EmbeddingProvider(Protocol):

@@ -14,7 +14,7 @@ from schemas.model_config import (
     ModelConfigResponse,
     ModelConfigUpdateRequest,
 )
-from services.model_config_service import model_config_service
+from services.common.model_config_service import model_config_service
 
 router = APIRouter(prefix="/model-config", tags=["text2sql-model-config"])
 compat_router = APIRouter(prefix="/models", tags=["Model Config"])

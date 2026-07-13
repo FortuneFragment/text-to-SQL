@@ -1,9 +1,12 @@
 ﻿from __future__ import annotations
 
 from dataclasses import dataclass
+from io import BytesIO
 import os
 import re
 import tempfile
+from xml.etree import ElementTree
+from zipfile import BadZipFile, ZipFile
 
 from sqlalchemy.orm import Session
 
@@ -14,7 +17,7 @@ from models.knowledge_file import KnowledgeFile
 from repositories.knowledge_file_repo import KnowledgeFileRepository
 from repositories.es_repo import es_repo
 from repositories.minio_repo import minio_repo
-from services.embeddings import get_embedding_vector_dim, get_embeddings
+from services.common.embeddings import get_embedding_vector_dim, get_embeddings
 
 
 _TEXT_EXTENSIONS = {
@@ -32,6 +35,12 @@ _TEXT_EXTENSIONS = {
 
 _unstructured_partition = None
 _unstructured_checked = False
+
+_WORDPROCESSINGML_NS = (
+    "{http://schemas.openxmlformats.org/"
+    "wordprocessingml/2006/main}"
+)
+_MAX_DOCX_XML_BYTES = 64 * 1024 * 1024
 
 
 def _get_unstructured_partition():
@@ -80,8 +89,87 @@ class RAGService:
                 continue
         return raw.decode("utf-8", errors="ignore")
 
+    @staticmethod
+    def _extract_docx_text(raw: bytes) -> str:
+        """Extract readable text from DOCX without optional parser dependencies."""
+
+        try:
+            with ZipFile(BytesIO(raw)) as archive:
+                names = set(archive.namelist())
+                if "word/document.xml" not in names:
+                    raise ValueError("DOCX archive is missing word/document.xml")
+
+                part_names = ["word/document.xml"]
+                part_names.extend(
+                    sorted(
+                        name
+                        for name in names
+                        if re.fullmatch(
+                            r"word/(?:header|footer)\d+\.xml",
+                            name,
+                        )
+                    )
+                )
+                part_names.extend(
+                    name
+                    for name in (
+                        "word/footnotes.xml",
+                        "word/endnotes.xml",
+                    )
+                    if name in names
+                )
+
+                xml_size = sum(
+                    int(archive.getinfo(name).file_size)
+                    for name in part_names
+                )
+                if xml_size > _MAX_DOCX_XML_BYTES:
+                    raise ValueError(
+                        "DOCX text content exceeds the safe parsing limit"
+                    )
+
+                sections: list[str] = []
+                for part_name in part_names:
+                    root = ElementTree.fromstring(archive.read(part_name))
+                    paragraphs: list[str] = []
+                    for paragraph in root.iter(
+                        f"{_WORDPROCESSINGML_NS}p"
+                    ):
+                        pieces: list[str] = []
+                        for node in paragraph.iter():
+                            if node.tag == f"{_WORDPROCESSINGML_NS}t":
+                                pieces.append(node.text or "")
+                            elif node.tag == f"{_WORDPROCESSINGML_NS}tab":
+                                pieces.append("\t")
+                            elif node.tag in {
+                                f"{_WORDPROCESSINGML_NS}br",
+                                f"{_WORDPROCESSINGML_NS}cr",
+                            }:
+                                pieces.append("\n")
+
+                        text = "".join(pieces).strip()
+                        if text:
+                            paragraphs.append(text)
+
+                    if paragraphs:
+                        sections.append("\n".join(paragraphs))
+
+        except (BadZipFile, ElementTree.ParseError, KeyError) as exc:
+            raise ValueError("Invalid or corrupted DOCX file") from exc
+
+        return "\n\n".join(sections).strip()
+
     def _extract_text(self, file_entity: KnowledgeFile, raw: bytes) -> str:
         ext = str(file_entity.file_type or "").lower().strip(".")
+
+        if ext == "docx":
+            text = self._extract_docx_text(raw)
+            if not text:
+                raise ValueError(
+                    f"File '{file_entity.file_name}' contains no readable DOCX text."
+                )
+            return text
+
         text = self._decode_bytes(raw)
 
         if ext in _TEXT_EXTENSIONS:
@@ -150,6 +238,18 @@ class RAGService:
         file_entity: KnowledgeFile,
         kb_entity: KnowledgeBase,
     ) -> dict:
+        usage_snapshot = str(
+            file_entity.usage_snapshot or ""
+        ).strip()
+        processor_type = str(
+            file_entity.processor_type or ""
+        ).strip()
+
+        if not usage_snapshot or not processor_type:
+            raise ValueError(
+                "Knowledge file isolation context is incomplete"
+            )
+
         chunk_plan = self._build_chunk_plan(kb_entity, file_entity)
         raw = minio_repo.get_file_bytes(file_entity.minio_object_name)
         text = self._extract_text(file_entity, raw)
@@ -166,6 +266,8 @@ class RAGService:
                 chunk_index=index,
                 content=content,
                 char_count=len(content),
+                usage_snapshot=usage_snapshot,
+                processor_type=processor_type,
             )
             for index, content in enumerate(chunks)
         ]
@@ -201,6 +303,8 @@ class RAGService:
                 "file_id": int(chunk.file_id),
                 "text": chunk.content,
                 "embedding": vector,
+                "usage_type": str(chunk.usage_snapshot),
+                "processor_type": str(chunk.processor_type),
             }
             for chunk, vector in zip(saved_chunks, embeddings)
         ]

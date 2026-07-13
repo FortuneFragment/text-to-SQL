@@ -27,7 +27,6 @@
           <span class="meta-tag">Collection：{{ selectedKb.collection_name }}</span>
           <span class="meta-tag">用途：{{ usageText(selectedKb.usage) }}</span>
           <span class="meta-tag">默认切片：{{ selectedKb.default_chunk_size }} / {{ selectedKb.default_chunk_overlap }}</span>
-          <span class="meta-tag" v-if="selectedKb.is_default">默认知识库</span>
         </div>
       </section>
 

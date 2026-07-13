@@ -9,61 +9,89 @@
 
     <div v-if="notice" class="notice" :class="noticeType">{{ notice }}</div>
 
-    <section class="grid-top">
-      <article class="panel form-panel">
-        <h3>新建知识库</h3>
-        <div class="form-grid">
-          <label>
-            <span>名称</span>
-            <input v-model.trim="kbForm.name" placeholder="例如：业务知识库" />
-          </label>
-          <label>
-            <span>集合名（可选）</span>
-            <input v-model.trim="kbForm.collection_name" placeholder="例如：biz_docs_collection" />
-          </label>
-          <label>
-            <span>用途</span>
-            <select v-model="kbForm.usage">
-              <option value="table_route">表路由</option>
-              <option value="few_shot">Few-shot</option>
-              <option value="data_dictionary">数据字典</option>
-            </select>
-          </label>
-          <label>
-            <span>默认切片大小</span>
-            <input v-model.number="kbForm.default_chunk_size" type="number" min="100" max="8000" />
-          </label>
-          <label>
-            <span>默认切片重叠</span>
-            <input v-model.number="kbForm.default_chunk_overlap" type="number" min="0" max="2000" />
-          </label>
-          <label class="span-2">
-            <span>描述</span>
-            <textarea v-model.trim="kbForm.description" rows="2" placeholder="可选描述" />
-          </label>
-        </div>
-
-        <div class="actions-row">
-          <button class="btn-secondary" :disabled="loading.kb" @click="createKb">新建知识库</button>
-        </div>
-      </article>
-
-      <article class="panel list-panel">
-        <div class="list-header">
+    <article class="panel list-panel">
+      <div class="list-header">
+        <div class="list-heading">
           <h3>知识库列表</h3>
-          <button class="btn-ghost" :disabled="loading.kb" @click="loadKnowledgeBases">刷新列表</button>
+          <p>共 {{ kbList.length }} 个知识库</p>
         </div>
+        <div class="list-actions">
+          <button
+            type="button"
+            class="btn-secondary"
+            :aria-expanded="showCreatePanel"
+            :disabled="loading.kb"
+            @click="toggleCreatePanel"
+          >
+            {{ showCreatePanel ? "收起新建" : "+ 新建知识库" }}
+          </button>
+          <button type="button" class="btn-ghost" :disabled="loading.kb" @click="loadKnowledgeBases">
+            刷新列表
+          </button>
+        </div>
+      </div>
+
+      <Transition name="create-panel">
+        <form v-if="showCreatePanel" class="create-panel" @submit.prevent="createKb">
+          <div class="create-panel-header">
+            <div>
+              <h4>新建知识库</h4>
+              <p>填写基础信息后保存，创建成功即可进入知识库上传文件。</p>
+            </div>
+            <button type="button" class="close-button" aria-label="关闭新建知识库表单" @click="closeCreatePanel">×</button>
+          </div>
+
+          <div class="form-grid">
+            <label>
+              <span>名称</span>
+              <input ref="nameInputRef" v-model.trim="kbForm.name" required placeholder="例如：业务知识库" />
+            </label>
+            <label>
+              <span>ES 索引名（可选）</span>
+              <input v-model.trim="kbForm.collection_name" placeholder="例如：biz_docs_collection" />
+            </label>
+            <label>
+              <span>用途</span>
+              <select v-model="kbForm.usage">
+                <option value="table_route">表路由</option>
+                <option value="few_shot">Few-shot</option>
+                <option value="data_dictionary">数据字典</option>
+                <option value="document_qa">文档问答</option>
+                <option value="table_semantic_tree">表格语义树</option>
+              </select>
+            </label>
+            <label>
+              <span>默认切片大小</span>
+              <input v-model.number="kbForm.default_chunk_size" type="number" min="100" max="8000" required />
+            </label>
+            <label>
+              <span>默认切片重叠</span>
+              <input v-model.number="kbForm.default_chunk_overlap" type="number" min="0" max="2000" required />
+            </label>
+            <label class="description-field">
+              <span>描述（可选）</span>
+              <textarea v-model.trim="kbForm.description" rows="2" placeholder="说明知识库的数据范围和用途" />
+            </label>
+          </div>
+
+          <div class="form-actions">
+            <button type="button" class="btn-ghost" :disabled="loading.kb" @click="closeCreatePanel">取消</button>
+            <button type="submit" class="btn-secondary" :disabled="loading.kb">
+              {{ loading.kb ? "保存中..." : "保存并创建" }}
+            </button>
+          </div>
+        </form>
+      </Transition>
 
         <div class="table-wrap">
-          <table class="kb-table">
+          <table class="data-table">
             <thead>
               <tr>
                 <th>ID</th>
-                <th>名称</th>
+                <th>名称/描述</th>
                 <th>用途</th>
-                <th>Collection</th>
-                <th>默认切片策略</th>
-                <th>默认库</th>
+                <th>ES 索引名</th>
+                <th>切片大小/重叠</th>
                 <th>创建时间</th>
                 <th>操作</th>
               </tr>
@@ -82,39 +110,45 @@
                 </td>
                 <td class="mono">{{ item.collection_name }}</td>
                 <td>{{ item.default_chunk_size }} / {{ item.default_chunk_overlap }}</td>
-                <td>
-                  <span class="meta-tag" :class="{ 'default-tag': item.is_default }">
-                    {{ item.is_default ? "是" : "-" }}
-                  </span>
-                </td>
                 <td>{{ formatTime(item.created_at) }}</td>
                 <td>
                   <div class="row-actions">
-                    <RouterLink :to="`/admin/text2sql/knowledge/${item.id}`" class="btn-primary enter-link">进入知识库</RouterLink>
+                    <RouterLink :to="`${knowledgeDetailBase}/${item.id}`" class="btn-primary enter-link">进入知识库</RouterLink>
                     <button class="btn-danger" :disabled="loading.kb" @click="deleteKb(item)">删除</button>
                   </div>
                 </td>
               </tr>
               <tr v-if="kbList.length === 0">
-                <td colspan="8" class="empty-cell">暂无知识库，请先创建</td>
+                <td colspan="7" class="empty-cell">暂无知识库，请先创建</td>
               </tr>
             </tbody>
           </table>
-        </div>
-      </article>
-    </section>
+      </div>
+    </article>
   </section>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from "vue";
-import { RouterLink } from "vue-router";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
+import { RouterLink, useRoute } from "vue-router";
 
 import { apiRequest } from "../api/client";
 
 const loading = reactive({ kb: false });
+const route = useRoute();
 const notice = ref("");
 const noticeType = ref("info");
+const showCreatePanel = ref(false);
+const nameInputRef = ref(null);
+const knowledgeDetailBase = computed(() => {
+  if (route.path.startsWith("/admin/document-qa")) {
+    return "/admin/document-qa/knowledge";
+  }
+  if (route.path.startsWith("/admin/model-config")) {
+    return "/admin/model-config/knowledge";
+  }
+  return "/admin/text2sql/knowledge";
+});
 
 const kbList = ref([]);
 const kbForm = reactive({
@@ -142,6 +176,19 @@ function resetKbForm() {
   kbForm.usage = "table_route";
   kbForm.default_chunk_size = 800;
   kbForm.default_chunk_overlap = 120;
+}
+
+async function toggleCreatePanel() {
+  showCreatePanel.value = !showCreatePanel.value;
+  if (showCreatePanel.value) {
+    await nextTick();
+    nameInputRef.value?.focus();
+  }
+}
+
+function closeCreatePanel() {
+  showCreatePanel.value = false;
+  resetKbForm();
 }
 
 // 中文备注：处理loadKnowledgeBases相关业务数据并返回结果。
@@ -188,6 +235,7 @@ async function createKb() {
     });
 
     resetKbForm();
+    showCreatePanel.value = false;
     await loadKnowledgeBases();
     setNotice(`知识库创建成功，ID：${created.id}`, "success");
   } catch (error) {
@@ -234,6 +282,8 @@ function usageText(value) {
   const usage = String(value || "table_route");
   if (usage === "few_shot") return "Few-shot";
   if (usage === "data_dictionary") return "数据字典";
+  if (usage === "document_qa") return "文档问答";
+  if (usage === "table_semantic_tree") return "表格语义树";
   return "表路由";
 }
 
@@ -241,6 +291,8 @@ function usageClass(value) {
   const usage = String(value || "table_route");
   if (usage === "few_shot") return "few-shot";
   if (usage === "data_dictionary") return "data-dictionary";
+  if (usage === "document_qa") return "document-qa";
+  if (usage === "table_semantic_tree") return "table-semantic-tree";
   return "table-route";
 }
 
@@ -295,20 +347,60 @@ h3 {
   color: var(--text-muted);
 }
 
-.grid-top {
-  display: grid;
-  grid-template-columns: minmax(340px, 0.82fr) minmax(0, 1.8fr);
-  gap: 14px;
-}
-
-.form-panel,
 .list-panel {
   min-width: 0;
 }
 
+.create-panel {
+  margin: 0 16px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(248, 248, 245, 0.9);
+}
+
+.create-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 18px;
+}
+
+.create-panel-header h4 {
+  margin: 0 0 5px;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.create-panel-header p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.close-button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.close-button:hover {
+  background: rgba(17, 17, 17, 0.06);
+  color: var(--text-main);
+}
+
 .form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -334,13 +426,14 @@ textarea {
   padding: 10px 12px;
 }
 
-.span-2 {
+.description-field {
   grid-column: span 2;
 }
 
-.actions-row {
+.form-actions {
   margin-top: 16px;
   display: flex;
+  justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -350,6 +443,20 @@ button {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  transition: transform 180ms ease, background-color 180ms ease, color 180ms ease;
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.enter-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 button:disabled {
@@ -394,7 +501,7 @@ button:disabled {
 .list-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   padding: 0;
   overflow: hidden;
   background: rgba(255, 255, 255, 0.72);
@@ -406,23 +513,41 @@ button:disabled {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-  padding: 14px 16px;
+  padding: 16px;
   border-bottom: 1px solid var(--line);
   background: rgba(244, 244, 241, 0.62);
+}
+
+.list-heading h3 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.list-heading p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.list-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .table-wrap {
   overflow-x: auto;
 }
 
-.kb-table {
+.data-table {
   width: 100%;
   border-collapse: collapse;
   min-width: 1040px;
 }
 
-.kb-table th,
-.kb-table td {
+.data-table th,
+.data-table td {
   border-bottom: 1px solid var(--line);
   padding: 12px 14px;
   text-align: left;
@@ -430,15 +555,19 @@ button:disabled {
   font-size: 13px;
 }
 
-.kb-table th {
+.data-table th {
   background: rgba(244, 244, 241, 0.68);
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 680;
 }
 
-.kb-table tbody tr:hover td {
+.data-table tbody tr:hover td {
   background: rgba(17, 17, 17, 0.026);
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .mono {
@@ -490,9 +619,14 @@ button:disabled {
   color: #9a3412;
 }
 
-.default-tag {
-  background: #f2f2ef;
-  color: var(--text-main);
+.usage-tag.document-qa {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.usage-tag.table-semantic-tree {
+  background: #f5f3ff;
+  color: #6d28d9;
 }
 
 .enter-link {
@@ -510,13 +644,18 @@ button:disabled {
 .empty-cell {
   text-align: center;
   color: var(--text-muted);
-  padding: 28px 0;
+  padding: 54px 0;
 }
 
-@media (max-width: 1200px) {
-  .grid-top {
-    grid-template-columns: 1fr;
-  }
+.create-panel-enter-active,
+.create-panel-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.create-panel-enter-from,
+.create-panel-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 
 @media (max-width: 720px) {
@@ -524,8 +663,26 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
-  .span-2 {
+  .description-field {
     grid-column: span 1;
+  }
+
+  .list-header,
+  .list-actions {
+    align-items: stretch;
+  }
+
+  .list-actions {
+    width: 100%;
+  }
+
+  .list-actions button {
+    flex: 1;
+  }
+
+  .create-panel {
+    margin: 0 10px;
+    padding: 14px;
   }
 }
 </style>

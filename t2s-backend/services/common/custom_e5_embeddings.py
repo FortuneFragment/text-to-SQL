@@ -41,7 +41,12 @@ class CustomE5Embeddings(Embeddings):
         self.model = str(model or "").strip()
         self.timeout = int(timeout)
         self.batch_size = max(1, int(batch_size))
-        self.verify: bool | str = str(ca_bundle or "").strip() or bool(verify_ssl)
+        configured_ca = str(ca_bundle or "").strip()
+        self.verify: bool | str = (
+            False
+            if not bool(verify_ssl)
+            else configured_ca or True
+        )
         self.session = requests.Session()
         self.session.trust_env = bool(trust_env)
 
@@ -90,6 +95,12 @@ class CustomE5Embeddings(Embeddings):
             ) from exc
         except requests.exceptions.RequestException as exc:
             raise RuntimeError(f"Embedding service request failed: {exc}") from exc
+        except OSError as exc:
+            raise RuntimeError(
+                "Embedding service CA bundle is unavailable. "
+                "Please check that the configured CA bundle path exists "
+                "inside the backend runtime."
+            ) from exc
         except ValueError as exc:
             raise RuntimeError("Embedding service returned invalid JSON") from exc
 

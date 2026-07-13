@@ -8,7 +8,13 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-
+from core.domain_errors import (
+    InvalidKnowledgeUsageError,
+    KnowledgeBaseConfigurationError,
+    KnowledgeBaseNotFoundError,
+    KnowledgeOperationForbiddenError,
+    KnowledgeUsageMismatchError,
+)
 from core.config import settings
 from core.database import SessionLocal, get_db
 from schemas.text2sql import (
@@ -19,12 +25,19 @@ from schemas.text2sql import (
     Text2SQLQueryResponse,
 )
 from services.text2sql import config_service, facade_service, log_service
-from services.text2sql.facade_service import GLOBAL_QUERY_USER_ID
+from core.auth import get_current_user, require_info_admin
+from services.text2sql.config_service import GLOBAL_CONFIG_USER_ID
 
 router = APIRouter(prefix="/qa", tags=["text2sql-qa"])
 alias_router = APIRouter(tags=["text2sql-query"])
 logger = logging.getLogger(__name__)
-
+_TEXT2SQL_KB_ERRORS = (
+    KnowledgeBaseConfigurationError,
+    KnowledgeBaseNotFoundError,
+    InvalidKnowledgeUsageError,
+    KnowledgeOperationForbiddenError,
+    KnowledgeUsageMismatchError,
+)
 
 def _sse(event: str, data: dict) -> str:
     payload = json.dumps(data, ensure_ascii=False, default=str)
@@ -62,7 +75,7 @@ def _build_debug_response(payload: dict) -> Text2SQLDebugGenerateResponse:
 
 
 def _runtime_config_with_history(db: Session, request: Text2SQLQueryRequest) -> dict:
-    runtime_config = config_service.get_runtime_config(db, user_id=GLOBAL_QUERY_USER_ID)
+    runtime_config = config_service.get_runtime_config(db, user_id=GLOBAL_CONFIG_USER_ID)
     runtime_config["request_id"] = uuid4().hex[:8]
     runtime_config["history"] = [turn.model_dump() for turn in request.history]
     return runtime_config
@@ -74,7 +87,11 @@ def _is_llm_unavailable(exc: ValueError) -> bool:
 
 @router.post("/query", response_model=Text2SQLQueryResponse)
 @alias_router.post("/query", response_model=Text2SQLQueryResponse)
-def query_text2sql(payload: Text2SQLQueryRequest, db: Session = Depends(get_db)):
+def query_text2sql(
+    payload: Text2SQLQueryRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     """Convert a natural-language question to SQL, execute it, and return the answer."""
     if not settings.TEXT2SQL_ENABLED:
         raise HTTPException(status_code=503, detail="当前已禁用 Text2SQL 问答功能")
@@ -84,8 +101,16 @@ def query_text2sql(payload: Text2SQLQueryRequest, db: Session = Depends(get_db))
             payload.question,
             db,
             runtime_config=runtime_config,
-            user_id=GLOBAL_QUERY_USER_ID,
+            user_id=current_user.id,
         )
+    except _TEXT2SQL_KB_ERRORS as exc:
+        logger.exception(
+            "Text2SQL knowledge base configuration invalid"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Text2SQL 知识库配置异常，请联系管理员",
+        ) from exc
     except ValueError as exc:
         if _is_llm_unavailable(exc):
             raise HTTPException(status_code=422, detail="大模型不可用") from exc
@@ -99,13 +124,17 @@ def query_text2sql(payload: Text2SQLQueryRequest, db: Session = Depends(get_db))
 
 @router.post("/query/feedback", response_model=bool)
 @alias_router.post("/query/feedback", response_model=bool)
-def query_feedback(payload: Text2SQLFeedbackRequest, db: Session = Depends(get_db)):
+def query_feedback(
+    payload: Text2SQLFeedbackRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     """Record a 1-5 score for a query log; high-score logs can be reused as few-shot examples."""
     try:
         updated = log_service.update_feedback(
             db,
             log_id=payload.log_id,
-            user_id=GLOBAL_QUERY_USER_ID,
+            user_id=current_user.id,
             score=payload.score,
             answer=payload.answer,
             question=payload.question,
@@ -122,7 +151,11 @@ def query_feedback(payload: Text2SQLFeedbackRequest, db: Session = Depends(get_d
 
 @router.post("/query/stream")
 @alias_router.post("/query/stream")
-def query_text2sql_stream(payload: Text2SQLQueryRequest):
+def query_text2sql_stream(
+    payload: Text2SQLQueryRequest,
+    current_user=Depends(get_current_user),
+):
+    user_id = current_user.id
     """SSE streaming query with progress events and streaming summary chunks."""
     if not settings.TEXT2SQL_ENABLED:
         raise HTTPException(status_code=503, detail="当前已禁用 Text2SQL 问答功能")
@@ -142,11 +175,29 @@ def query_text2sql_stream(payload: Text2SQLQueryRequest):
                     payload.question,
                     db,
                     runtime_config=runtime_config,
-                    user_id=GLOBAL_QUERY_USER_ID,
+                    user_id=user_id,
                     progress_callback=emit_progress,
                 )
                 emit_progress("status", {"step": "completed", "message": "查询完成"})
                 emit_progress("done", _build_query_response(result).model_dump())
+            except _TEXT2SQL_KB_ERRORS as exc:
+                logger.exception(
+                    "Text2SQL knowledge base configuration invalid"
+                )
+                emit_progress(
+                    "error",
+                    {
+                        "code": getattr(
+                            exc,
+                            "code",
+                            "KB_CONFIG_INVALID",
+                        ),
+                        "message": (
+                            "Text2SQL 知识库配置异常，"
+                            "请联系管理员"
+                        ),
+                    },
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.exception("stream query failed")
                 emit_progress("error", {"message": "查询失败，请检查问题或稍后重试"})
@@ -175,7 +226,11 @@ def query_text2sql_stream(payload: Text2SQLQueryRequest):
 
 @router.post("/debug/generate", response_model=Text2SQLDebugGenerateResponse)
 @alias_router.post("/debug/generate", response_model=Text2SQLDebugGenerateResponse)
-def debug_generate(payload: Text2SQLQueryRequest, db: Session = Depends(get_db)):
+def debug_generate(
+    payload: Text2SQLQueryRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_info_admin),
+):
     """Generate and validate SQL without executing it."""
     runtime_config = _runtime_config_with_history(db, payload)
     try:
@@ -183,8 +238,16 @@ def debug_generate(payload: Text2SQLQueryRequest, db: Session = Depends(get_db))
             payload.question,
             db,
             runtime_config=runtime_config,
-            user_id=GLOBAL_QUERY_USER_ID,
+            user_id=current_user.id,
         )
+    except _TEXT2SQL_KB_ERRORS as exc:
+        logger.exception(
+            "Text2SQL knowledge base configuration invalid"
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="Text2SQL 知识库配置异常，请联系管理员",
+        ) from exc
     except ValueError as exc:
         if _is_llm_unavailable(exc):
             raise HTTPException(status_code=422, detail="大模型不可用") from exc
@@ -198,7 +261,11 @@ def debug_generate(payload: Text2SQLQueryRequest, db: Session = Depends(get_db))
 
 @router.post("/debug/generate/stream")
 @alias_router.post("/debug/generate/stream")
-def debug_generate_stream(payload: Text2SQLQueryRequest):
+def debug_generate_stream(
+    payload: Text2SQLQueryRequest,
+    current_user=Depends(require_info_admin),
+):
+    user_id = current_user.id
     """SSE streaming debug generation."""
     if not settings.TEXT2SQL_ENABLED:
         raise HTTPException(status_code=503, detail="当前已禁用 Text2SQL 问答功能")
@@ -218,11 +285,29 @@ def debug_generate_stream(payload: Text2SQLQueryRequest):
                     payload.question,
                     db,
                     runtime_config=runtime_config,
-                    user_id=GLOBAL_QUERY_USER_ID,
+                    user_id=user_id,
                     progress_callback=emit_progress,
                 )
                 emit_progress("status", {"step": "completed", "message": "SQL 生成完成"})
                 emit_progress("done", _build_debug_response(result).model_dump())
+            except _TEXT2SQL_KB_ERRORS as exc:
+                logger.exception(
+                    "Text2SQL knowledge base configuration invalid"
+                )
+                emit_progress(
+                    "error",
+                    {
+                        "code": getattr(
+                            exc,
+                            "code",
+                            "KB_CONFIG_INVALID",
+                        ),
+                        "message": (
+                            "Text2SQL 知识库配置异常，"
+                            "请联系管理员"
+                        ),
+                    },
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.exception("stream debug generate failed")
                 emit_progress("error", {"message": "调试失败，请检查问题或稍后重试"})
@@ -251,6 +336,10 @@ def debug_generate_stream(payload: Text2SQLQueryRequest):
 
 @router.get("/logs", response_model=list[Text2SQLQueryLogItem])
 @alias_router.get("/logs", response_model=list[Text2SQLQueryLogItem])
-def get_logs(limit: int = Query(default=20, ge=1, le=200), db: Session = Depends(get_db)):
+def get_logs(
+    limit: int = Query(default=20, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     """Return recent query logs in reverse chronological order."""
-    return log_service.list_logs(db, GLOBAL_QUERY_USER_ID, limit)
+    return log_service.list_logs(db, current_user.id, limit)

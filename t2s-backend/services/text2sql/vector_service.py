@@ -7,12 +7,15 @@ from collections import defaultdict
 
 from sqlalchemy.orm import Session
 
-from core.config import settings
+from core.domain_errors import (
+    KnowledgeBaseConfigurationError,
+)
+from core.knowledge_policy import KnowledgeOperation
+from services.common.knowledge_guard_service import knowledge_guard
 from core.knowledge_usage import KB_USAGE_TABLE_ROUTE
 from models.knowledge_file import KnowledgeFile
-from repositories.knowledge_base_repo import KnowledgeBaseRepository
 from repositories.es_repo import es_repo
-from services.embeddings import get_embedding_vector_dim, get_embeddings
+from services.common.embeddings import get_embedding_vector_dim, get_embeddings
 
 _logger = logging.getLogger("text2sql.vector")
 _TABLE_TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9_]+|[\u4e00-\u9fff]+")
@@ -21,9 +24,24 @@ _TABLE_TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9_]+|[\u4e00-\u9fff]+")
 class Text2SQLVectorService:
     """Provide table-level vector retrieval scores for routing."""
 
-    def __init__(self, kb_id: int | None = 0):
-        # 0/None 表示自动选择知识库。
-        self.kb_id = self._safe_positive_int(kb_id) or 0
+    def __init__(
+            self,
+            kb_id: int | None = 0,
+    ):
+        # 0 或 None 表示未启用固定的 table_route 知识库。
+        if kb_id in (None, 0):
+            self.kb_id = 0
+            return
+
+        parsed_kb_id = self._safe_positive_int(kb_id)
+
+        if parsed_kb_id is None:
+            raise KnowledgeBaseConfigurationError(
+                "TABLE_ROUTE_KB_ID 必须是大于 0 的整数，"
+                f"当前值为：{kb_id!r}"
+            )
+
+        self.kb_id = parsed_kb_id
 
     @staticmethod
     def _normalize_identifier(value: str | None) -> str:
@@ -119,25 +137,38 @@ class Text2SQLVectorService:
         )
         return {int(file_id): str(file_name or "") for file_id, file_name in rows}
 
-    def _resolve_route_kb(self, db: Session, requested_kb_id: int | None = None) -> tuple[int, object | None]:
-        repo = KnowledgeBaseRepository(db)
+    def _resolve_route_kb(
+            self,
+            db: Session,
+            requested_kb_id: int | None = None,
+    ) -> tuple[int, object | None]:
+        # 调用方明确传入了 ID。
+        if requested_kb_id not in (None, 0):
+            explicit_kb_id = self._safe_positive_int(
+                requested_kb_id
+            )
 
-        explicit_kb_id = self._safe_positive_int(requested_kb_id)
-        if explicit_kb_id:
-            kb = repo.get_by_id_for_usage(explicit_kb_id, KB_USAGE_TABLE_ROUTE)
-            if kb is not None:
-                return explicit_kb_id, kb
+            if explicit_kb_id is None:
+                raise KnowledgeBaseConfigurationError(
+                    "route_kb_id 必须是大于 0 的整数，"
+                    f"当前值为：{requested_kb_id!r}"
+                )
 
-        configured_kb_id = self._safe_positive_int(self.kb_id)
-        if configured_kb_id:
-            kb = repo.get_by_id_for_usage(configured_kb_id, KB_USAGE_TABLE_ROUTE)
-            if kb is not None:
-                return configured_kb_id, kb
+            guard_ctx = knowledge_guard.resolve_kb_for_operation(
+                db,
+                explicit_kb_id,
+                KnowledgeOperation.TABLE_ROUTE_SEARCH,
+            )
+            return explicit_kb_id, guard_ctx.kb
 
-        for kb in repo.list_by_usage(KB_USAGE_TABLE_ROUTE):
-            resolved_id = self._safe_positive_int(getattr(kb, "id", None))
-            if resolved_id:
-                return resolved_id, kb
+        # 服务实例配置了固定知识库。
+        if self.kb_id > 0:
+            guard_ctx = knowledge_guard.resolve_kb_for_operation(
+                db,
+                self.kb_id,
+                KnowledgeOperation.TABLE_ROUTE_SEARCH,
+            )
+            return self.kb_id, guard_ctx.kb
 
         return 0, None
 
@@ -191,6 +222,7 @@ class Text2SQLVectorService:
                 kb_id=active_kb_id,
                 query_vector=query_vector,
                 top_k=query_limit,
+                expected_usage=KB_USAGE_TABLE_ROUTE,
             )
         except Exception:  # noqa: BLE001
             _logger.exception(

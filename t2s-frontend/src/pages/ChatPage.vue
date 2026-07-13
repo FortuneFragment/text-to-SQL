@@ -3,20 +3,45 @@
     <div class="chat-shell panel">
       <header class="page-header">
         <div>
-          <h2>数据问答</h2>
+          <h2>{{ activeMode === "document" ? "文档问答" : "数据问答" }}</h2>
+          <p>{{ activeMode === "document" ? "基于文档知识与高基表回答问题" : "基于学校数据库查询" }}</p>
+        </div>
+
+        <div class="page-actions">
+          <span class="current-user">{{ currentUserName }}</span>
+          <div class="mode-switch" aria-label="问答模式">
+            <button
+              type="button"
+              :class="{ active: activeMode === 'document' }"
+              :disabled="loading.query"
+              @click="switchMode('document')"
+            >
+              文档问答
+            </button>
+            <button
+              type="button"
+              :class="{ active: activeMode === 'data' }"
+              :disabled="loading.query"
+              @click="switchMode('data')"
+            >
+              数据问答
+            </button>
+          </div>
+          <RouterLink v-if="isAdmin" to="/admin" class="header-link">进入后台管理</RouterLink>
+          <a class="header-link" :href="ssoLogoutUrl">退出登录</a>
         </div>
       </header>
 
       <div v-if="notice" class="notice" :class="noticeType">{{ notice }}</div>
 
-      <div v-if="!connectionConfigured" class="empty-state">
+      <div v-if="activeMode === 'data' && !connectionConfigured" class="empty-state">
         <div class="empty-title">外部数据库尚未配置</div>
         <p>请联系管理员完成数据连接配置。</p>
       </div>
 
       <div ref="conversationRef" class="conversation">
-        <div v-if="connectionConfigured && messages.length === 0" class="welcome">
-          <h3>今天想查什么数据？</h3>
+        <div v-if="messages.length === 0 && canUseCurrentMode" class="welcome">
+          <h3>{{ activeMode === "document" ? "想查哪份资料或表格？" : "今天想查什么数据？" }}</h3>
         </div>
 
         <article v-for="item in messages" :key="item.id" class="turn">
@@ -31,7 +56,7 @@
               <template v-if="item.status === 'streaming'">
                 <div class="progress-line">{{ item.progressStatus || "正在查询..." }}</div>
                 <div v-if="item.summaryStreaming || item.answer" class="answer-text streaming-answer">
-                  {{ item.answer || "正在生成结果总结..." }}
+                  {{ item.answer || "正在生成回答..." }}
                 </div>
               </template>
 
@@ -45,47 +70,62 @@
 
               <template v-else>
                 <div class="answer-text">{{ item.answer || "没有生成可展示的回答。" }}</div>
-                <div class="meta-info">
-                  {{ item.row_count }} 行结果
-                  <span v-if="item.repaired"> · 已自动修复 SQL</span>
-                </div>
 
-                <details v-if="Array.isArray(item.rows) && item.rows.length" class="data-preview" open>
-                  <summary>查看数据明细（前 10 行）</summary>
-                  <div class="result-table-wrap">
-                    <table class="result-table">
-                      <thead>
-                        <tr>
-                          <th v-for="col in columnsOf(item)" :key="col">{{ col }}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <tr v-for="(row, rIdx) in item.rows.slice(0, 10)" :key="rIdx">
-                          <td v-for="col in columnsOf(item)" :key="`${rIdx}-${col}`">{{ formatCellValue(row[col]) }}</td>
-                        </tr>
-                      </tbody>
-                    </table>
+                <template v-if="item.mode === 'data'">
+                  <div class="meta-info">
+                    {{ item.row_count }} 行结果
+                    <span v-if="item.repaired"> · 已自动修复 SQL</span>
                   </div>
+
+                  <details v-if="Array.isArray(item.rows) && item.rows.length" class="data-preview" open>
+                    <summary>查看数据明细（前 10 行）</summary>
+                    <div class="result-table-wrap">
+                      <table class="result-table">
+                        <thead>
+                          <tr>
+                            <th v-for="col in columnsOf(item)" :key="col">{{ col }}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <tr v-for="(row, rIdx) in item.rows.slice(0, 10)" :key="rIdx">
+                            <td v-for="col in columnsOf(item)" :key="`${rIdx}-${col}`">{{ formatCellValue(row[col]) }}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+
+                  <div v-if="item.log_id" class="feedback-row">
+                    <span>这次回答有帮助吗？</span>
+                    <div class="star-row" aria-label="回答评分">
+                      <button
+                        v-for="score in [1, 2, 3, 4, 5]"
+                        :key="score"
+                        type="button"
+                        class="star-btn"
+                        :class="{ active: item.feedbackScore >= score }"
+                        :disabled="item.feedbackSubmitting || item.feedbackSubmitted"
+                        :title="`${score} 星`"
+                        @click="submitFeedback(item, score)"
+                      >
+                        ★
+                      </button>
+                    </div>
+                    <span v-if="item.feedbackSubmitted" class="feedback-done">已记录</span>
+                  </div>
+                </template>
+
+                <details v-if="item.mode === 'document' && item.evidences.length" class="evidence-list">
+                  <summary>查看引用依据（{{ item.evidences.length }} 条）</summary>
+                  <article v-for="evidence in item.evidences" :key="evidence.chunk_id || evidence.text" class="evidence-item">
+                    <div class="meta-info">
+                      KB #{{ evidence.kb_id }}
+                      <span v-if="evidence.file_id"> · 文件 #{{ evidence.file_id }}</span>
+                      <span v-if="Number.isFinite(Number(evidence.score))"> · {{ formatScore(evidence.score) }}</span>
+                    </div>
+                    <pre>{{ evidence.text }}</pre>
+                  </article>
                 </details>
-
-                <div v-if="item.log_id" class="feedback-row">
-                  <span>这次回答有帮助吗？</span>
-                  <div class="star-row" aria-label="回答评分">
-                    <button
-                      v-for="score in [1, 2, 3, 4, 5]"
-                      :key="score"
-                      type="button"
-                      class="star-btn"
-                      :class="{ active: item.feedbackScore >= score }"
-                      :disabled="item.feedbackSubmitting || item.feedbackSubmitted"
-                      :title="`${score} 星`"
-                      @click="submitFeedback(item, score)"
-                    >
-                      ★
-                    </button>
-                  </div>
-                  <span v-if="item.feedbackSubmitted" class="feedback-done">已记录</span>
-                </div>
               </template>
             </div>
           </div>
@@ -96,15 +136,15 @@
         <textarea
           v-model="question"
           rows="3"
-          :disabled="loading.query || !connectionConfigured"
-          placeholder="输入你的数据问题，按 Enter 发送."
+          :disabled="loading.query || !canUseCurrentMode"
+          :placeholder="activeMode === 'document' ? '输入你的文档或表格问题，按 Enter 发送' : '输入你的数据问题，按 Enter 发送'"
           @keydown.enter.exact.prevent="sendQuestion"
         />
         <div class="composer-actions">
           <button type="button" class="btn-ghost" :disabled="loading.query || messages.length === 0" @click="newConversation">
             新对话
           </button>
-          <button class="btn-primary" :disabled="loading.query || !connectionConfigured">
+          <button class="btn-primary" :disabled="loading.query || !canUseCurrentMode">
             {{ loading.query ? "查询中..." : "发送" }}
           </button>
         </div>
@@ -114,10 +154,17 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
-import { apiRequest, streamRequest } from "../api/client";
+import { computed, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { RouterLink } from "vue-router";
+import { API_BASE, apiRequest, streamRequest } from "../api/client";
+
+const userState = inject("userState");
+const ssoLogoutUrl = `${API_BASE}/auth/logout/sso`;
+const isAdmin = computed(() => userState?.user?.permissions?.includes("admin:access"));
+const currentUserName = computed(() => userState?.user?.name || "已登录用户");
 
 const loading = reactive({ query: false });
+const activeMode = ref("document");
 const question = ref("");
 const messages = ref([]);
 const connectionConfigured = ref(false);
@@ -128,9 +175,19 @@ const conversationRef = ref(null);
 
 let turnSeq = 0;
 
+const canUseCurrentMode = computed(() => activeMode.value === "document" || connectionConfigured.value);
+
 function setNotice(message, type = "info") {
   notice.value = message;
   noticeType.value = type;
+}
+
+function switchMode(mode) {
+  if (loading.query || activeMode.value === mode) return;
+  stopActiveStream();
+  activeMode.value = mode;
+  messages.value = [];
+  setNotice(mode === "document" ? "已切换到文档问答。" : "已切换到数据问答。", "info");
 }
 
 function stopActiveStream() {
@@ -153,8 +210,13 @@ function formatCellValue(value) {
   return value;
 }
 
-function normalizeQueryResult(questionText, data, base = {}) {
-  // 优先展示解码后的中文行（decoded_rows），缺省回退原始码值 rows。
+function formatScore(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return "-";
+  return `相关度 ${Math.round(num * 100)}%`;
+}
+
+function normalizeDataResult(questionText, data, base = {}) {
   const rows = Array.isArray(data?.decoded_rows) && data.decoded_rows.length
     ? data.decoded_rows
     : (Array.isArray(data?.rows) ? data.rows : []);
@@ -162,6 +224,7 @@ function normalizeQueryResult(questionText, data, base = {}) {
   const clarification = String(data?.clarification || "");
   return {
     ...base,
+    mode: "data",
     question: questionText,
     status: clarification ? "clarify" : "done",
     sql: data?.sql || base.sql || base.generated_sql || "",
@@ -175,17 +238,38 @@ function normalizeQueryResult(questionText, data, base = {}) {
     clarification,
     log_id: data?.log_id ?? base.log_id ?? null,
     error_message: "",
+    evidences: [],
     feedbackScore: base.feedbackScore || 0,
     feedbackSubmitting: false,
     feedbackSubmitted: false,
   };
 }
 
-function buildConversationHistory() {
+function normalizeDocumentResult(questionText, data, base = {}) {
+  return {
+    ...base,
+    mode: "document",
+    question: questionText,
+    status: "done",
+    answer: data?.answer || base.answer || "",
+    evidences: Array.isArray(data?.evidences) ? data.evidences : [],
+    summaryStreaming: false,
+    error_message: "",
+  };
+}
+
+function buildDataHistory() {
   return messages.value
-    .filter((item) => item.status === "done" && item.sql)
+    .filter((item) => item.mode === "data" && item.status === "done" && item.sql)
     .slice(-20)
     .map((item) => ({ question: item.question, sql: item.sql, answer: item.answer || "" }));
+}
+
+function buildDocumentHistory() {
+  return messages.value
+    .filter((item) => item.mode === "document" && item.status === "done")
+    .slice(-20)
+    .map((item) => ({ question: item.question, answer: item.answer || "" }));
 }
 
 async function scrollToBottom() {
@@ -209,16 +293,10 @@ async function loadConnectionStatus() {
   }
 }
 
-async function sendQuestion() {
-  const q = question.value.trim();
-  if (!q) {
-    setNotice("请先输入问题", "error");
-    return;
-  }
-  if (loading.query) return;
-
-  const activeTurn = {
+function createActiveTurn(q) {
+  return {
     id: `chat-${Date.now()}-${turnSeq++}`,
+    mode: activeMode.value,
     question: q,
     status: "streaming",
     progressStatus: "正在启动查询...",
@@ -228,6 +306,7 @@ async function sendQuestion() {
     columns: [],
     rows: [],
     answer: "",
+    evidences: [],
     summaryStreaming: false,
     row_count: 0,
     repaired: false,
@@ -238,8 +317,21 @@ async function sendQuestion() {
     feedbackSubmitting: false,
     feedbackSubmitted: false,
   };
+}
 
-  const payload = { question: q, history: buildConversationHistory() };
+async function sendQuestion() {
+  const q = question.value.trim();
+  if (!q) {
+    setNotice("请先输入问题", "error");
+    return;
+  }
+  if (loading.query) return;
+  if (!canUseCurrentMode.value) {
+    setNotice("当前模式尚不可用，请先完成配置。", "error");
+    return;
+  }
+
+  const activeTurn = createActiveTurn(q);
   messages.value.push(activeTurn);
   question.value = "";
   loading.query = true;
@@ -247,59 +339,11 @@ async function sendQuestion() {
   await scrollToBottom();
 
   try {
-    await new Promise((resolve, reject) => {
-      let finished = false;
-      streamStopper.value = streamRequest("/text2sql/query/stream", payload, {
-        onStatus: (data) => {
-          activeTurn.progressStatus = data?.message || "";
-          if (data?.step === "summarizing") {
-            activeTurn.summaryStreaming = true;
-          }
-          scrollToBottom();
-        },
-        onSelectedTables: (data) => {
-          activeTurn.selected_tables = Array.isArray(data?.selected_tables) ? data.selected_tables : [];
-        },
-        onGeneratedSql: (data) => {
-          const sql = data?.sql || data?.final_sql || "";
-          activeTurn.generated_sql = sql;
-          if (!activeTurn.sql) activeTurn.sql = sql;
-        },
-        onSqlResult: (data) => {
-          activeTurn.sql = data?.sql || activeTurn.generated_sql || activeTurn.sql;
-          activeTurn.columns = Array.isArray(data?.columns) ? data.columns : [];
-          activeTurn.rows = Array.isArray(data?.decoded_rows) && data.decoded_rows.length
-            ? data.decoded_rows
-            : (Array.isArray(data?.rows) ? data.rows : []);
-          activeTurn.row_count = Number(data?.row_count ?? activeTurn.rows.length);
-          activeTurn.repaired = Boolean(data?.repaired);
-        },
-        onAnswerDelta: (content) => {
-          activeTurn.summaryStreaming = true;
-          if (content) {
-            activeTurn.answer += content;
-            scrollToBottom();
-          }
-        },
-        onDone: (data) => {
-          if (finished) return;
-          finished = true;
-          Object.assign(activeTurn, normalizeQueryResult(q, data, activeTurn));
-          streamStopper.value = null;
-          resolve();
-        },
-        onError: (error) => {
-          if (finished) return;
-          finished = true;
-          activeTurn.status = "error";
-          activeTurn.error_message = error?.message || "查询失败";
-          activeTurn.summaryStreaming = false;
-          streamStopper.value = null;
-          reject(new Error(activeTurn.error_message));
-        },
-      });
-    });
-
+    if (activeMode.value === "data") {
+      await sendDataQuestion(q, activeTurn);
+    } else {
+      await sendDocumentQuestion(q, activeTurn);
+    }
     await scrollToBottom();
     setNotice(activeTurn.status === "clarify" ? "需要补充查询条件。" : "查询成功", activeTurn.status === "clarify" ? "info" : "success");
   } catch (error) {
@@ -307,6 +351,88 @@ async function sendQuestion() {
   } finally {
     loading.query = false;
   }
+}
+
+async function sendDataQuestion(q, activeTurn) {
+  const payload = { question: q, history: buildDataHistory() };
+  await new Promise((resolve, reject) => {
+    let finished = false;
+    streamStopper.value = streamRequest("/text2sql/query/stream", payload, {
+      onStatus: (data) => {
+        activeTurn.progressStatus = data?.message || "";
+        if (data?.step === "summarizing") activeTurn.summaryStreaming = true;
+        scrollToBottom();
+      },
+      onSelectedTables: (data) => {
+        activeTurn.selected_tables = Array.isArray(data?.selected_tables) ? data.selected_tables : [];
+      },
+      onGeneratedSql: (data) => {
+        const sql = data?.sql || data?.final_sql || "";
+        activeTurn.generated_sql = sql;
+        if (!activeTurn.sql) activeTurn.sql = sql;
+      },
+      onSqlResult: (data) => {
+        activeTurn.sql = data?.sql || activeTurn.generated_sql || activeTurn.sql;
+        activeTurn.columns = Array.isArray(data?.columns) ? data.columns : [];
+        activeTurn.rows = Array.isArray(data?.decoded_rows) && data.decoded_rows.length
+          ? data.decoded_rows
+          : (Array.isArray(data?.rows) ? data.rows : []);
+        activeTurn.row_count = Number(data?.row_count ?? activeTurn.rows.length);
+        activeTurn.repaired = Boolean(data?.repaired);
+      },
+      onAnswerDelta: (content) => {
+        activeTurn.summaryStreaming = true;
+        if (content) {
+          activeTurn.answer += content;
+          scrollToBottom();
+        }
+      },
+      onDone: (data) => {
+        if (finished) return;
+        finished = true;
+        Object.assign(activeTurn, normalizeDataResult(q, data, activeTurn));
+        streamStopper.value = null;
+        resolve();
+      },
+      onError: (error) => {
+        if (finished) return;
+        finished = true;
+        activeTurn.status = "error";
+        activeTurn.error_message = error?.message || "查询失败";
+        activeTurn.summaryStreaming = false;
+        streamStopper.value = null;
+        reject(new Error(activeTurn.error_message));
+      },
+    });
+  });
+}
+
+async function sendDocumentQuestion(q, activeTurn) {
+  const payload = { question: q, history: buildDocumentHistory() };
+  await new Promise((resolve, reject) => {
+    let finished = false;
+    streamStopper.value = streamRequest("/document-qa/query/stream", payload, {
+      onStatus: (data) => {
+        activeTurn.progressStatus = data?.message || "";
+        scrollToBottom();
+      },
+      onDone: (data) => {
+        if (finished) return;
+        finished = true;
+        Object.assign(activeTurn, normalizeDocumentResult(q, data, activeTurn));
+        streamStopper.value = null;
+        resolve();
+      },
+      onError: (error) => {
+        if (finished) return;
+        finished = true;
+        activeTurn.status = "error";
+        activeTurn.error_message = error?.message || "文档问答失败";
+        streamStopper.value = null;
+        reject(new Error(activeTurn.error_message));
+      },
+    });
+  });
 }
 
 async function submitFeedback(item, score) {
@@ -392,6 +518,61 @@ h2 {
   font-size: 14px;
 }
 
+.page-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.current-user {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.header-link {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.header-link:hover {
+  border-color: rgba(var(--accent-rgb), 0.24);
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.mode-switch {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.mode-switch button {
+  min-width: 92px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.mode-switch button.active {
+  background: #111111;
+  color: #ffffff;
+}
+
 .notice {
   justify-self: center;
   width: min(960px, calc(100% - 32px));
@@ -446,11 +627,6 @@ h2 {
   line-height: 1.08;
   font-weight: 730;
   letter-spacing: 0;
-}
-
-.welcome p,
-.empty-state p {
-  margin: 0 0 16px;
 }
 
 .turn {
@@ -541,11 +717,13 @@ h2 {
   padding: 12px;
 }
 
-.data-preview {
+.data-preview,
+.evidence-list {
   margin-top: 12px;
 }
 
-.data-preview summary {
+.data-preview summary,
+.evidence-list summary {
   color: var(--text-main);
   cursor: pointer;
   font-weight: 620;
@@ -579,6 +757,22 @@ h2 {
   font-weight: 620;
 }
 
+.evidence-item {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.evidence-item pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
+  color: var(--text-main);
+}
+
 .feedback-row {
   display: flex;
   align-items: center;
@@ -609,11 +803,6 @@ h2 {
 .star-btn.active,
 .star-btn:hover:not(:disabled) {
   color: #a16207;
-}
-
-.star-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.7;
 }
 
 .feedback-done {
@@ -660,18 +849,13 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.btn-outline {
-  display: inline-flex;
-}
-
 @media (max-width: 720px) {
-  .page-header,
-  .composer {
-    grid-template-columns: 1fr;
-  }
-
   .page-header {
     flex-direction: column;
+  }
+
+  .page-actions {
+    justify-content: flex-start;
   }
 
   .composer {

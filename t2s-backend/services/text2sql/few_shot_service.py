@@ -4,19 +4,22 @@ import hashlib
 import json
 import logging
 
+from core.knowledge_policy import ProcessorType
 from sqlalchemy.orm import Session
-
+from core.domain_errors import (
+    KnowledgeBaseConfigurationError,
+)
+from core.knowledge_policy import KnowledgeOperation
+from services.common.knowledge_guard_service import knowledge_guard
 from core.config import settings
 from core.knowledge_usage import KB_USAGE_FEW_SHOT
 from models.document_chunk import DocumentChunk
 from models.knowledge_file import KnowledgeFile
 from repositories.es_repo import es_repo
-from repositories.knowledge_base_repo import KnowledgeBaseRepository
 from repositories.knowledge_file_repo import KnowledgeFileRepository
 from repositories.minio_repo import minio_repo
 from repositories.text2sql_query_log_repo import Text2SQLQueryLogRepository
-from services.embeddings import get_embedding_vector_dim, get_embeddings
-from services.knowledge_service import knowledge_service
+from services.common.embeddings import get_embedding_vector_dim, get_embeddings
 
 _NO_EXAMPLES_TEXT = "(no historical examples)"
 _logger = logging.getLogger("text2sql.few_shot")
@@ -84,20 +87,37 @@ class Text2SQLFewShotService:
             tables.append(value)
         return tables
 
-    def _resolve_few_shot_kb(self, db: Session, *, create_if_missing: bool = False):
-        repo = KnowledgeBaseRepository(db)
-        configured_kb_id = self._safe_positive_int(getattr(settings, "FEW_SHOT_KB_ID", 0))
-        if configured_kb_id:
-            kb = repo.get_by_id_for_usage(configured_kb_id, KB_USAGE_FEW_SHOT)
-            if kb is not None:
-                return kb
-            _logger.warning("Configured FEW_SHOT_KB_ID=%s is not a few-shot KB", configured_kb_id)
+    def _resolve_few_shot_kb(
+            self,
+            db: Session,
+            *,
+            for_write: bool = False,
+    ):
+        operation = (
+            KnowledgeOperation.FEW_SHOT_WRITE
+            if for_write
+            else KnowledgeOperation.FEW_SHOT_SEARCH
+        )
 
-        if create_if_missing:
-            return knowledge_service.ensure_kb_for_usage(db, KB_USAGE_FEW_SHOT)
+        raw_configured_kb_id = getattr(
+            settings,
+            "FEW_SHOT_KB_ID",
+            0,
+        )
 
-        rows = repo.list_by_usage(KB_USAGE_FEW_SHOT)
-        return rows[0] if rows else None
+        configured_kb_id = self._safe_positive_int(raw_configured_kb_id)
+        if configured_kb_id is None:
+            raise KnowledgeBaseConfigurationError(
+                "启用 Few-shot 前必须将 FEW_SHOT_KB_ID 配置为已存在的 Few-shot 知识库 ID，"
+                f"当前值为：{raw_configured_kb_id!r}"
+            )
+
+        guard_ctx = knowledge_guard.resolve_kb_for_operation(
+            db,
+            configured_kb_id,
+            operation,
+        )
+        return guard_ctx.kb
 
     @staticmethod
     def _split_text(text: str, chunk_size: int, chunk_overlap: int) -> list[str]:
@@ -158,7 +178,8 @@ class Text2SQLFewShotService:
         if file_repo.check_exists_by_md5(kb_id, digest):
             return False
 
-        object_name = f"few-shot/kb_{kb_id}/log_{int(log_id)}_{digest}.md"
+        object_name = f"few_shot/kb_{kb_id}/log_{int(log_id)}_{digest}.md"
+        from core.knowledge_policy import ProcessorType
         file_entity = KnowledgeFile(
             kb_id=kb_id,
             file_name=f"few-shot-log-{int(log_id)}.md",
@@ -169,6 +190,9 @@ class Text2SQLFewShotService:
             minio_object_name=object_name,
             status=1,
             is_deleted=False,
+            usage_snapshot=KB_USAGE_FEW_SHOT,
+            processor_type=ProcessorType.FEW_SHOT.value,
+            process_version=1,
         )
         created_file = file_repo.create_file(file_entity)
 
@@ -192,6 +216,8 @@ class Text2SQLFewShotService:
                     chunk_index=index,
                     content=chunk,
                     char_count=len(chunk),
+                    usage_snapshot=KB_USAGE_FEW_SHOT,
+                    processor_type=ProcessorType.FEW_SHOT.value,
                 )
                 for index, chunk in enumerate(chunks)
             ]
@@ -216,6 +242,8 @@ class Text2SQLFewShotService:
                         "file_id": int(created_file.id),
                         "text": chunk.content,
                         "embedding": vector,
+                        "usage_type": KB_USAGE_FEW_SHOT,
+                        "processor_type": ProcessorType.FEW_SHOT.value,
                     }
                 )
 
@@ -266,7 +294,7 @@ class Text2SQLFewShotService:
         if not content:
             return False
 
-        kb = self._resolve_few_shot_kb(db, create_if_missing=True)
+        kb = self._resolve_few_shot_kb(db, for_write=True)
         if kb is None:
             return False
         return self._insert_example_document(db, kb=kb, log_id=log_id, content=content)
@@ -286,7 +314,7 @@ class Text2SQLFewShotService:
         if not question_text:
             return _NO_EXAMPLES_TEXT
 
-        kb = self._resolve_few_shot_kb(db, create_if_missing=False)
+        kb = self._resolve_few_shot_kb(db)
         if kb is None:
             return _NO_EXAMPLES_TEXT
 
@@ -307,6 +335,8 @@ class Text2SQLFewShotService:
                 kb_id=int(getattr(kb, "id", 0) or 0),
                 query_vector=query_vector,
                 top_k=self._candidate_limit,
+                expected_usage=KB_USAGE_FEW_SHOT,
+                expected_processor_types=[ProcessorType.FEW_SHOT.value],
             )
         except Exception:  # noqa: BLE001
             _logger.exception("few-shot KB retrieval failed")

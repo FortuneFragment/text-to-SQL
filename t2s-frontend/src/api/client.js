@@ -44,6 +44,7 @@ export async function apiRequest(path, options = {}) {
     response = await fetch(`${API_BASE}${path}`, {
       ...options,
       headers,
+      credentials: "include",
     });
   } catch (error) {
     throw new Error(`无法连接后端服务（${API_BASE}）：${error.message || "网络请求失败"}`);
@@ -51,7 +52,9 @@ export async function apiRequest(path, options = {}) {
 
   if (!response.ok) {
     const detail = await readErrorDetail(response);
-    throw new Error(detail || "请求失败");
+    const err = new Error(detail || "请求失败");
+    err.status = response.status;
+    throw err;
   }
 
   if (response.status === 204) {
@@ -129,6 +132,7 @@ export function streamRequest(path, payload, handlers = {}) {
         },
         body: JSON.stringify(payload || {}),
         signal: abortController.signal,
+        credentials: "include",
       });
 
       if (!response.ok) {

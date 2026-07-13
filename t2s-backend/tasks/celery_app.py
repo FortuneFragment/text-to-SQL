@@ -6,7 +6,7 @@ celery_app = Celery(
     "text2sql_tasks",
     broker=settings.EFFECTIVE_CELERY_BROKER_URL,
     backend=settings.EFFECTIVE_CELERY_RESULT_BACKEND,
-    include=["tasks.document_tasks"],
+    include=["tasks.document_tasks", "tasks.table_semantic_tasks"],
 )
 
 celery_app.conf.update(

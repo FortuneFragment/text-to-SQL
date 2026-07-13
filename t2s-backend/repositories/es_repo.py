@@ -7,6 +7,11 @@ from elasticsearch import Elasticsearch, helpers
 
 from core.config import settings
 from core.es_index_name import is_valid_index_name
+from core.knowledge_policy import (
+    ProcessorType,
+    expected_processor,
+    parse_usage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +50,31 @@ class ElasticsearchRepository:
                     f"Elasticsearch index '{name}' vector dim mismatch: "
                     f"expected {dim}, got {field_dim}"
                 )
+
+            isolation_mapping = {
+                "usage_type": {"type": "keyword"},
+                "processor_type": {"type": "keyword"},
+            }
+            missing = {
+                field: definition
+                for field, definition in isolation_mapping.items()
+                if field not in properties
+            }
+            for field in isolation_mapping:
+                actual_type = (
+                    properties.get(field, {}).get("type")
+                )
+                if actual_type not in {None, "keyword"}:
+                    raise ValueError(
+                        f"Elasticsearch index '{name}' field "
+                        f"'{field}' must be keyword, got "
+                        f"{actual_type!r}"
+                    )
+            if missing:
+                self.client.indices.put_mapping(
+                    index=name,
+                    properties=missing,
+                )
             return
 
         mappings = {
@@ -52,6 +82,8 @@ class ElasticsearchRepository:
                 "chunk_id": {"type": "long"},
                 "kb_id": {"type": "long"},
                 "file_id": {"type": "long"},
+                "usage_type": {"type": "keyword"},
+                "processor_type": {"type": "keyword"},
                 "text": {"type": "text", "analyzer": "standard"},
                 "embedding": {
                     "type": "dense_vector",
@@ -82,12 +114,38 @@ class ElasticsearchRepository:
             chunk_id = row.get("chunk_id")
             if chunk_id is None:
                 raise ValueError("chunk_id is required for Elasticsearch indexing")
+
+            usage = parse_usage(row.get("usage_type"))
+            try:
+                processor = ProcessorType(
+                    str(row.get("processor_type") or "")
+                )
+            except ValueError as exc:
+                raise ValueError(
+                    "processor_type is required for "
+                    "Elasticsearch indexing"
+                ) from exc
+
+            expected = expected_processor(usage)
+            if processor != expected:
+                raise ValueError(
+                    f"Elasticsearch isolation context mismatch: "
+                    f"usage={usage.value}, "
+                    f"processor={processor.value}, "
+                    f"expected={expected.value}"
+                )
+
+            source = {
+                **row,
+                "usage_type": usage.value,
+                "processor_type": processor.value,
+            }
             actions.append(
                 {
                     "_op_type": "index",
                     "_index": name,
                     "_id": str(chunk_id),
-                    "_source": row,
+                    "_source": source,
                 }
             )
 
@@ -103,6 +161,7 @@ class ElasticsearchRepository:
         self,
         file_id: int,
         *,
+        kb_id: int | None = None,
         index_name: str | None = None,
         vector_dim: int | None = None,
     ) -> None:
@@ -110,9 +169,15 @@ class ElasticsearchRepository:
         if not self.client.indices.exists(index=name):
             return
 
+        filters = [{"term": {"file_id": int(file_id)}}]
+        if kb_id is not None:
+            filters.append({"term": {"kb_id": int(kb_id)}})
+
+        query = {"bool": {"filter": filters}}
+
         self.client.delete_by_query(
             index=name,
-            query={"term": {"file_id": int(file_id)}},
+            query=query,
             refresh=True,
             conflicts="proceed",
         )
@@ -148,6 +213,8 @@ class ElasticsearchRepository:
         kb_id: int,
         query_vector: list[float],
         top_k: int = 5,
+        expected_usage: str | None = None,
+        expected_processor_types: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         name = self._resolve_index_name(index_name)
         dim = self._resolve_vector_dim(vector_dim)
@@ -166,6 +233,53 @@ class ElasticsearchRepository:
             int(settings.ES_KNN_NUM_CANDIDATES),
         )
 
+        filters: list[dict[str, Any]] = [{"term": {"kb_id": int(kb_id)}}]
+
+        strict_mode = getattr(
+            settings,
+            "KB_USAGE_STRICT_ES_FILTER",
+            True,
+        )
+
+        normalized_usage = None
+        if expected_usage:
+            normalized_usage = parse_usage(
+                expected_usage
+            )
+            filters.append(
+                {
+                    "term": {
+                        "usage_type": normalized_usage.value,
+                    }
+                }
+            )
+        elif strict_mode:
+            raise ValueError(
+                "expected_usage is required when knowledge "
+                "base ES isolation is enabled"
+            )
+
+        if expected_processor_types:
+            normalized_processors = [
+                ProcessorType(str(item)).value
+                for item in expected_processor_types
+            ]
+        elif normalized_usage is not None:
+            normalized_processors = [
+                expected_processor(normalized_usage).value
+            ]
+        else:
+            normalized_processors = []
+
+        if normalized_processors:
+            filters.append(
+                {
+                    "terms": {
+                        "processor_type": normalized_processors,
+                    }
+                }
+            )
+
         response = self.client.search(
             index=name,
             knn={
@@ -173,10 +287,10 @@ class ElasticsearchRepository:
                 "query_vector": query_vector,
                 "k": top_k,
                 "num_candidates": num_candidates,
-                "filter": {"term": {"kb_id": int(kb_id)}},
+                "filter": filters,
             },
             size=top_k,
-            source=["chunk_id", "kb_id", "file_id", "text"],
+            source=["chunk_id", "kb_id", "file_id", "text", "usage_type", "processor_type"],
         )
 
         payload: list[dict[str, Any]] = []
@@ -190,6 +304,8 @@ class ElasticsearchRepository:
                     "kb_id": source.get("kb_id"),
                     "file_id": source.get("file_id"),
                     "text": source.get("text"),
+                    "usage_type": source.get("usage_type"),
+                    "processor_type": source.get("processor_type"),
                 }
             )
         return payload
