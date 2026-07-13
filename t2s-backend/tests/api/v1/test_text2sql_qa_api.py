@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import anyio
 import pytest
 from fastapi import HTTPException
@@ -13,7 +15,11 @@ def test_query_endpoint_disabled_when_text2sql_disabled(monkeypatch):
     monkeypatch.setattr(settings, "TEXT2SQL_ENABLED", False)
 
     with pytest.raises(HTTPException) as exc_info:
-        text2sql_qa.query_text2sql(Text2SQLQueryRequest(question="query anything"), db=None)
+        text2sql_qa.query_text2sql(
+            Text2SQLQueryRequest(question="query anything"),
+            db=None,
+            current_user=SimpleNamespace(id=1),
+        )
 
     assert exc_info.value.status_code == 503
     assert "\u7981\u7528" in str(exc_info.value.detail)
@@ -29,7 +35,11 @@ def test_query_endpoint_hides_raw_exception_detail(monkeypatch):
     monkeypatch.setattr(text2sql_qa.facade_service, "query", fail_query)
 
     with pytest.raises(HTTPException) as exc_info:
-        text2sql_qa.query_text2sql(Text2SQLQueryRequest(question="query anything"), db=None)
+        text2sql_qa.query_text2sql(
+            Text2SQLQueryRequest(question="query anything"),
+            db=None,
+            current_user=SimpleNamespace(id=1),
+        )
 
     assert exc_info.value.status_code == 422
     assert "internal database secret" not in str(exc_info.value.detail)
@@ -45,7 +55,10 @@ def test_query_stream_hides_raw_exception_detail(monkeypatch):
 
     monkeypatch.setattr(text2sql_qa.facade_service, "query", fail_query)
 
-    response = text2sql_qa.query_text2sql_stream(Text2SQLQueryRequest(question="query anything"))
+    response = text2sql_qa.query_text2sql_stream(
+        Text2SQLQueryRequest(question="query anything"),
+        current_user=SimpleNamespace(id=1),
+    )
     chunks: list[str] = []
 
     async def collect_stream() -> None:

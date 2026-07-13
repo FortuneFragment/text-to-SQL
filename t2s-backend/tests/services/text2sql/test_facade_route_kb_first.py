@@ -76,13 +76,13 @@ def _build_facade():
 
 
 def test_route_tables_prefers_kb_recall_then_schema_rerank(monkeypatch):
+    monkeypatch.setattr(settings, "TABLE_ROUTE_KB_ID", 2)
     facade, schema, field_permission = _build_facade()
     monkeypatch.setattr(settings, "TABLE_ROUTE_KB_SEARCH_TOP_K", 50)
     monkeypatch.setattr(settings, "TABLE_ROUTE_KB_RECALL_CANDIDATES", 2)
     monkeypatch.setattr(settings, "TABLE_ROUTE_MAX_CANDIDATES", 2)
     monkeypatch.setattr(settings, "TEXT2SQL_MULTI_TABLE_ENABLED", True)
     monkeypatch.setattr(settings, "TEXT2SQL_MAX_JOIN_TABLES", 2)
-    monkeypatch.setattr(settings, "TABLE_ROUTE_KB_ID", 0)
 
     vector_call_index = {"value": 0}
 
@@ -134,13 +134,13 @@ def test_route_tables_prefers_kb_recall_then_schema_rerank(monkeypatch):
 
 
 def test_route_tables_expands_bridge_table_before_router(monkeypatch):
+    monkeypatch.setattr(settings, "TABLE_ROUTE_KB_ID", 2)
     facade, _, _ = _build_facade()
     monkeypatch.setattr(settings, "TABLE_ROUTE_KB_SEARCH_TOP_K", 50)
     monkeypatch.setattr(settings, "TABLE_ROUTE_KB_RECALL_CANDIDATES", 2)
     monkeypatch.setattr(settings, "TABLE_ROUTE_MAX_CANDIDATES", 2)
     monkeypatch.setattr(settings, "TEXT2SQL_MULTI_TABLE_ENABLED", True)
     monkeypatch.setattr(settings, "TEXT2SQL_MAX_JOIN_TABLES", 3)
-    monkeypatch.setattr(settings, "TABLE_ROUTE_KB_ID", 0)
 
     vector_call_index = {"value": 0}
 
@@ -198,10 +198,10 @@ def test_route_tables_expands_bridge_table_before_router(monkeypatch):
 
 
 def test_route_tables_returns_no_signal_when_kb_and_keyword_have_no_hit(monkeypatch):
+    monkeypatch.setattr(settings, "TABLE_ROUTE_KB_ID", 2)
     facade, _, _ = _build_facade()
     monkeypatch.setattr(settings, "TABLE_ROUTE_KB_SEARCH_TOP_K", 50)
     monkeypatch.setattr(settings, "TABLE_ROUTE_KB_RECALL_CANDIDATES", 2)
-    monkeypatch.setattr(settings, "TABLE_ROUTE_KB_ID", 0)
 
     monkeypatch.setattr(
         facade.vector_service,
@@ -226,12 +226,12 @@ def test_route_tables_returns_no_signal_when_kb_and_keyword_have_no_hit(monkeypa
 
 
 def test_route_tables_uses_configured_score_weights(monkeypatch):
+    monkeypatch.setattr(settings, "TABLE_ROUTE_KB_ID", 2)
     facade, _, _ = _build_facade()
     monkeypatch.setattr(settings, "TABLE_ROUTE_KB_SEARCH_TOP_K", 50)
     monkeypatch.setattr(settings, "TABLE_ROUTE_KB_RECALL_CANDIDATES", 3)
     monkeypatch.setattr(settings, "TABLE_ROUTE_MAX_CANDIDATES", 3)
     monkeypatch.setattr(settings, "TEXT2SQL_MULTI_TABLE_ENABLED", False)
-    monkeypatch.setattr(settings, "TABLE_ROUTE_KB_ID", 0)
 
     monkeypatch.setattr(settings, "TABLE_ROUTE_SEMANTIC_SCORE_WEIGHT", 1.0)
     monkeypatch.setattr(settings, "TABLE_ROUTE_KEYWORD_SCORE_WEIGHT", 10.0)

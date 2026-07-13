@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import requests
 
-from services.custom_e5_embeddings import CustomE5Embeddings
+from services.common.custom_e5_embeddings import CustomE5Embeddings
 
 
 class DummyResponse:
@@ -56,6 +56,37 @@ def test_embed_query_wraps_ssl_errors():
     embedder.session.post = fake_post
 
     with pytest.raises(RuntimeError, match="SSL handshake failed"):
+        embedder.embed_query("hello")
+
+
+def test_disabling_ssl_verification_overrides_ca_bundle():
+    embedder = CustomE5Embeddings(
+        api_base="https://example.com/v1",
+        api_key="",
+        model="e5",
+        verify_ssl=False,
+        ca_bundle="C:/certs/internal-ca.pem",
+        max_retries=0,
+    )
+
+    assert embedder.verify is False
+
+
+def test_embed_query_wraps_invalid_ca_bundle_paths():
+    embedder = CustomE5Embeddings(
+        api_base="https://example.com/v1",
+        api_key="",
+        model="e5",
+        ca_bundle="C:/missing/internal-ca.pem",
+        max_retries=0,
+    )
+
+    def fake_post(*args, **kwargs):
+        raise OSError("invalid path")
+
+    embedder.session.post = fake_post
+
+    with pytest.raises(RuntimeError, match="CA bundle is unavailable"):
         embedder.embed_query("hello")
 
 

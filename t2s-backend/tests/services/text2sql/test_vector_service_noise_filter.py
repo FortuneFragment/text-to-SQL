@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+_ROOT = Path(__file__).resolve().parents[3]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 from core.config import settings
 import services.text2sql.vector_service as vector_module
 from services.text2sql.vector_service import Text2SQLVectorService

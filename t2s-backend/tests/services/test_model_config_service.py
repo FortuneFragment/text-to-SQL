@@ -7,7 +7,7 @@ from sqlalchemy.orm import sessionmaker
 import core.connection_password_cipher as cipher_module
 from models.text2sql_model_config import Text2SQLModelConfig
 from schemas.model_config import ModelConfigCreateRequest, ModelConfigUpdateRequest
-from services.model_config_service import Text2SQLModelConfigService
+from services.common.model_config_service import Text2SQLModelConfigService
 
 
 @pytest.fixture()
