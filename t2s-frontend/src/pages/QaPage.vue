@@ -98,6 +98,7 @@
                   <div class="answer-text">{{ item.answer || "--" }}</div>
                   <div class="meta-info">
                     {{ item.row_count }} 行数据 · {{ item.repaired ? "已尝试修复SQL" : "原生SQL未修复" }}
+                    <span v-if="item.few_shot_reused"> · 命中已审核 SQL</span>
                     <span v-if="item.log_id"> · 日志 #{{ item.log_id }}</span>
                   </div>
 
@@ -122,7 +123,7 @@
                   </div>
 
                   <div v-if="item.log_id" class="feedback-row">
-                    <span class="feedback-label">满意度（5 星会作为 few-shot 示例候选）</span>
+                    <span class="feedback-label">满意度（5 星仅作为待审核的 few-shot 候选）</span>
                     <div class="star-row">
                       <button
                         v-for="score in [1, 2, 3, 4, 5]"
@@ -257,6 +258,9 @@ function normalizeQueryResult(questionText, data, base = {}) {
     summaryStreaming: false,
     row_count: Number(data?.row_count ?? rows.length),
     repaired: Boolean(data?.repaired),
+    few_shot_reused: Boolean(data?.few_shot_reused ?? base.few_shot_reused),
+    few_shot_match_score: data?.few_shot_match_score ?? base.few_shot_match_score ?? null,
+    few_shot_log_id: data?.few_shot_log_id ?? base.few_shot_log_id ?? null,
     field_inference: fieldInference,
     field_inference_map: buildFieldInferenceMap(fieldInference),
     clarification,
@@ -318,6 +322,9 @@ async function askQuestion() {
     summaryStreaming: false,
     row_count: 0,
     repaired: false,
+    few_shot_reused: false,
+    few_shot_match_score: null,
+    few_shot_log_id: null,
     field_inference: [],
     field_inference_map: {},
     clarification: "",
@@ -360,6 +367,9 @@ async function askQuestion() {
           generatedSql.value = sql;
           activeTurn.generated_sql = sql;
           if (!activeTurn.sql) activeTurn.sql = sql;
+          activeTurn.few_shot_reused = Boolean(data?.few_shot_reused);
+          activeTurn.few_shot_match_score = data?.few_shot_match_score ?? null;
+          activeTurn.few_shot_log_id = data?.few_shot_log_id ?? null;
         },
         onSqlResult: (data) => {
           activeTurn.sql = data?.sql || activeTurn.generated_sql || activeTurn.sql;
@@ -369,6 +379,9 @@ async function askQuestion() {
             : (Array.isArray(data?.rows) ? data.rows : []);
           activeTurn.row_count = Number(data?.row_count ?? activeTurn.rows.length);
           activeTurn.repaired = Boolean(data?.repaired);
+          activeTurn.few_shot_reused = Boolean(data?.few_shot_reused ?? activeTurn.few_shot_reused);
+          activeTurn.few_shot_match_score = data?.few_shot_match_score ?? activeTurn.few_shot_match_score;
+          activeTurn.few_shot_log_id = data?.few_shot_log_id ?? activeTurn.few_shot_log_id;
           activeTurn.field_inference = Array.isArray(data?.field_inference) ? data.field_inference : [];
           activeTurn.field_inference_map = buildFieldInferenceMap(activeTurn.field_inference);
         },
@@ -464,16 +477,12 @@ async function submitFeedback(item, score) {
       body: JSON.stringify({
         log_id: item.log_id,
         score,
-        question: item.question,
-        sql: item.sql || item.generated_sql || "",
-        answer: item.answer || "",
-        selected_tables: item.selected_tables || [],
       }),
     });
     item.feedbackScore = score;
     item.feedbackSubmitted = true;
     await loadLogs();
-    setNotice(score >= 5 ? "反馈已记录，该问答将作为 few-shot 示例候选。" : "反馈已记录。", "success");
+    setNotice(score >= 5 ? "反馈已记录，该问答已进入 few-shot 待审核列表。" : "反馈已记录。", "success");
   } catch (error) {
     setNotice(`反馈提交失败：${error.message}`, "error");
   } finally {

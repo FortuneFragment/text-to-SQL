@@ -75,6 +75,7 @@
                   <div class="meta-info">
                     {{ item.row_count }} 行结果
                     <span v-if="item.repaired"> · 已自动修复 SQL</span>
+                    <span v-if="item.few_shot_reused"> · 命中已审核 SQL</span>
                   </div>
 
                   <details v-if="Array.isArray(item.rows) && item.rows.length" class="data-preview" open>
@@ -235,6 +236,9 @@ function normalizeDataResult(questionText, data, base = {}) {
     summaryStreaming: false,
     row_count: Number(data?.row_count ?? rows.length),
     repaired: Boolean(data?.repaired),
+    few_shot_reused: Boolean(data?.few_shot_reused ?? base.few_shot_reused),
+    few_shot_match_score: data?.few_shot_match_score ?? base.few_shot_match_score ?? null,
+    few_shot_log_id: data?.few_shot_log_id ?? base.few_shot_log_id ?? null,
     clarification,
     log_id: data?.log_id ?? base.log_id ?? null,
     error_message: "",
@@ -310,6 +314,9 @@ function createActiveTurn(q) {
     summaryStreaming: false,
     row_count: 0,
     repaired: false,
+    few_shot_reused: false,
+    few_shot_match_score: null,
+    few_shot_log_id: null,
     clarification: "",
     log_id: null,
     error_message: "",
@@ -370,6 +377,9 @@ async function sendDataQuestion(q, activeTurn) {
         const sql = data?.sql || data?.final_sql || "";
         activeTurn.generated_sql = sql;
         if (!activeTurn.sql) activeTurn.sql = sql;
+        activeTurn.few_shot_reused = Boolean(data?.few_shot_reused);
+        activeTurn.few_shot_match_score = data?.few_shot_match_score ?? null;
+        activeTurn.few_shot_log_id = data?.few_shot_log_id ?? null;
       },
       onSqlResult: (data) => {
         activeTurn.sql = data?.sql || activeTurn.generated_sql || activeTurn.sql;
@@ -379,6 +389,9 @@ async function sendDataQuestion(q, activeTurn) {
           : (Array.isArray(data?.rows) ? data.rows : []);
         activeTurn.row_count = Number(data?.row_count ?? activeTurn.rows.length);
         activeTurn.repaired = Boolean(data?.repaired);
+        activeTurn.few_shot_reused = Boolean(data?.few_shot_reused ?? activeTurn.few_shot_reused);
+        activeTurn.few_shot_match_score = data?.few_shot_match_score ?? activeTurn.few_shot_match_score;
+        activeTurn.few_shot_log_id = data?.few_shot_log_id ?? activeTurn.few_shot_log_id;
       },
       onAnswerDelta: (content) => {
         activeTurn.summaryStreaming = true;
@@ -444,15 +457,11 @@ async function submitFeedback(item, score) {
       body: JSON.stringify({
         log_id: item.log_id,
         score,
-        question: item.question,
-        sql: item.sql || item.generated_sql || "",
-        answer: item.answer || "",
-        selected_tables: item.selected_tables || [],
       }),
     });
     item.feedbackScore = score;
     item.feedbackSubmitted = true;
-    setNotice(score >= 5 ? "反馈已记录，满分回答将回流到 few-shot 知识库。" : "反馈已记录。", "success");
+    setNotice(score >= 5 ? "反馈已记录，满分回答需管理员审核后才会发布。" : "反馈已记录。", "success");
   } catch (error) {
     setNotice(`反馈提交失败：${error.message}`, "error");
   } finally {
